@@ -329,6 +329,12 @@ function syncForm() {
 
 function renderPalette() {
   const palette = $("#palette");
+  const unusedCount = getUnusedTiles().length;
+  const cleanupButton = $("#removeUnusedTilesBtn");
+  cleanupButton.disabled = unusedCount === 0;
+  cleanupButton.title = unusedCount
+    ? `Dzēst ${unusedCount} paletē neizmantotās krāsas`
+    : "Visas paletes krāsas tiek izmantotas";
   palette.replaceChildren();
   if (!state.tiles.length) {
     palette.innerHTML = '<p class="palette-empty">Palete ir tukša. Pievieno flīzi ar +</p>';
@@ -344,6 +350,14 @@ function renderPalette() {
     button.addEventListener("dblclick", () => openTileDialog(tile));
     palette.append(button);
   });
+}
+
+function getUnusedTiles() {
+  const usedTileIds = new Set();
+  state.layers.forEach(layer => layer.cells.forEach(row => row.forEach(tileId => {
+    if (tileId) usedTileIds.add(tileId);
+  })));
+  return state.tiles.filter(tile => !usedTileIds.has(tile.id));
 }
 
 function renderLayers() {
@@ -938,6 +952,26 @@ function openTileDialog(tile = null) {
   $("#tileDialog").showModal();
 }
 $("#addTileBtn").addEventListener("click", () => openTileDialog());
+$("#removeUnusedTilesBtn").addEventListener("click", () => {
+  const unusedTiles = getUnusedTiles();
+  if (!unusedTiles.length) return;
+  const message = unusedTiles.length === 1
+    ? `Dzēst neizmantoto krāsu “${unusedTiles[0].name}”?`
+    : `Dzēst ${unusedTiles.length} neizmantotās krāsas no flīžu paletes?`;
+  if (!confirm(message)) return;
+
+  snapshot();
+  const unusedIds = new Set(unusedTiles.map(tile => tile.id));
+  const unusedCodes = new Set(unusedTiles.map(tile => tile.code));
+  state.tiles = state.tiles.filter(tile => !unusedIds.has(tile.id));
+  state.containers = state.containers.filter(container => !unusedCodes.has(container.c));
+  if (state.mystery) {
+    state.mystery.exclude = state.mystery.exclude.filter(code => !unusedCodes.has(code));
+  }
+  if (unusedIds.has(selectedTile)) selectedTile = state.tiles[0]?.id;
+  changed();
+  toast(`Izdzēstas neizmantotās krāsas: ${unusedTiles.length}`);
+});
 $("#tileForm").addEventListener("submit", (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();

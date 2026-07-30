@@ -42,6 +42,7 @@ button { cursor: pointer; }
 .button.danger:hover { background: #3b2022; border-color: #e56b61; }
 .button.ghost { background: transparent; }
 .button.full { width: 100%; }
+.button:disabled { cursor: default; opacity: .4; transform: none; }
 
 .workspace { display: grid; grid-template-columns: 292px minmax(300px, 1fr) 286px; height: calc(100vh - var(--top)); }
 .sidebar { overflow-y: auto; background: var(--panel); scrollbar-width: thin; scrollbar-color: #4b4558 transparent; }
@@ -83,6 +84,7 @@ code { font: 10px DM Mono, monospace; }
 .tile-swatch span { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 3px; color: white; font-size: 17px; text-shadow: 0 1px 2px #0008; image-rendering: pixelated; }
 .tile-swatch:hover, .tile-swatch.active { border-color: var(--accent); }
 .tile-swatch.active::after { content: ""; position: absolute; right: -3px; bottom: -3px; width: 8px; height: 8px; background: var(--accent); border: 2px solid var(--panel); border-radius: 50%; }
+.palette-cleanup { margin-top: 10px; padding: 7px 9px; color: var(--muted); font-size: 10px; }
 .hint { color: var(--muted); font-size: 9px; margin: 10px 0 0; text-align: center; }
 .image-hint { margin-top: -4px; line-height: 1.5; }
 
