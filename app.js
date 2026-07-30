@@ -29,12 +29,16 @@ function makeInitialState() {
     name: "Mans pirmais līmenis",
     author: "",
     description: "",
-    difficulty: "Medium",
-    slot: 19,
+    difficulty: "Auto",
+    slot: 1,
     source: "tool",
     beltCap: 24,
     seed: 19001,
     containers: [],
+    mystery: null,
+    thick: null,
+    regions: null,
+    shutters: null,
     width,
     height,
     tileSize: 32,
@@ -46,7 +50,11 @@ function makeInitialState() {
   };
 }
 
-let state = loadDraft() || makeInitialState();
+const workspace = loadWorkspace();
+let levelCollection = workspace.levels;
+let activeLevelIndex = workspace.activeLevelIndex;
+let importedCollection = workspace.importedCollection;
+let state = clone(levelCollection[activeLevelIndex]);
 let selectedTile = state.tiles[0]?.id;
 let activeLayer = 0;
 let activeTool = "brush";
@@ -58,26 +66,38 @@ let history = [];
 let future = [];
 let editingTileId = null;
 let imageColorCount = 8;
+let pendingImageFile = null;
+let pendingImage = null;
+let pendingImageResult = null;
+let previewTimer = null;
 
 const canvas = $("#levelCanvas");
 const ctx = canvas.getContext("2d");
 const viewport = $("#canvasViewport");
 
-function loadDraft() {
+function loadWorkspace() {
   try {
     const draft = localStorage.getItem("pixel-level-tool-draft");
-    if (!draft) return null;
+    if (!draft) return { levels: [makeInitialState()], activeLevelIndex: 0, importedCollection: false };
     const parsed = JSON.parse(draft);
+    if (parsed?.format === "pixel-level-tool-workspace" && Array.isArray(parsed.levels) && parsed.levels.length) {
+      const levels = parsed.levels.map(normaliseLevel);
+      return {
+        levels,
+        activeLevelIndex: Math.max(0, Math.min(levels.length - 1, Math.trunc(+parsed.activeLevelIndex || 0))),
+        importedCollection: !!parsed.importedCollection
+      };
+    }
     // Pirms 12 × 12 noklusējuma ieviešanas lietotne automātiski saglabāja
     // 24 × 16 demonstrācijas līmeni. To atpazīstam pēc precīzās sākuma formas
     // un migrējam, lai vecais paraugs vairs neizskatītos kā jaunais noklusējums.
     if (isLegacyStarterDraft(parsed)) {
       const migrated = makeInitialState();
       localStorage.setItem("pixel-level-tool-draft", JSON.stringify(migrated));
-      return migrated;
+      return { levels: [migrated], activeLevelIndex: 0, importedCollection: false };
     }
-    return normaliseLevel(parsed);
-  } catch { return null; }
+    return { levels: [normaliseLevel(parsed)], activeLevelIndex: 0, importedCollection: false };
+  } catch { return { levels: [makeInitialState()], activeLevelIndex: 0, importedCollection: false }; }
 }
 
 function isLegacyStarterDraft(level) {
@@ -96,7 +116,7 @@ function normaliseLevel(data) {
   if (!data || !Number.isInteger(+data.width) || !Number.isInteger(+data.height)) throw new Error("Nederīgs līmeņa formāts.");
   const width = Math.max(4, Math.min(100, +data.width));
   const height = Math.max(4, Math.min(100, +data.height));
-  const sourceTiles = Array.isArray(data.tiles) && data.tiles.length ? data.tiles : clone(defaultTiles);
+  const sourceTiles = Array.isArray(data.tiles) ? data.tiles : clone(defaultTiles);
   const usedCodes = new Set();
   const tiles = sourceTiles.map((tile, index) => {
     let code = String(tile.code || "").toUpperCase().slice(0, 1);
@@ -119,11 +139,15 @@ function normaliseLevel(data) {
     format: "pixel-level-tool", version: 1,
     name: String(data.name || "Līmenis"), author: String(data.author || ""),
     description: String(data.description || ""), difficulty: normaliseTier(data.difficulty),
-    slot: Math.max(1, Math.trunc(+data.slot || 19)),
+    slot: Math.max(1, Math.trunc(+data.slot || 1)),
     source: ["tool", "pushed", "builtin"].includes(data.source) ? data.source : "tool",
     beltCap: Math.max(1, Math.trunc(+data.beltCap || 24)),
     seed: Math.max(1, Math.trunc(+data.seed || 19001)),
     containers: normaliseContainers(data.containers),
+    mystery: normaliseMystery(data.mystery),
+    thick: normaliseThick(data.thick),
+    regions: normaliseRegions(data.regions),
+    shutters: normaliseShutters(data.shutters),
     width, height, tileSize: Math.max(8, Math.min(256, +data.tileSize || 32)),
     backgroundColor: /^#[0-9a-f]{6}$/i.test(data.backgroundColor) ? data.backgroundColor : "#17151f",
     tiles, layers
@@ -140,9 +164,53 @@ function normaliseContainers(containers) {
   }));
 }
 
+function normaliseMystery(mystery) {
+  if (!mystery || typeof mystery !== "object" || Array.isArray(mystery)) return null;
+  const exclude = Array.isArray(mystery.exclude)
+    ? [...new Set(mystery.exclude.map(code => String(code).toUpperCase().slice(0, 1)).filter(Boolean))]
+    : [];
+  return {
+    proportion: Math.max(0.05, Math.min(1, Number.isFinite(+mystery.proportion) ? +mystery.proportion : 0.25)),
+    revealAt: mystery.revealAt === "bottom" ? "bottom" : "top",
+    exclude
+  };
+}
+
+function normaliseThick(thick) {
+  if (!thick || typeof thick !== "object" || Array.isArray(thick)) return null;
+  const result = {};
+  Object.entries(thick).forEach(([key, hp]) => {
+    if (!/^\d+,\d+$/.test(key) || !Number.isFinite(+hp) || +hp < 1) return;
+    result[key] = Math.trunc(+hp);
+  });
+  return Object.keys(result).length ? result : null;
+}
+
+function normaliseRegions(regions) {
+  if (!regions || typeof regions !== "object" || Array.isArray(regions)) return null;
+  const result = {};
+  Object.entries(regions).forEach(([name, coordinates]) => {
+    const safeName = String(name).trim().slice(0, 48);
+    if (!safeName || !Array.isArray(coordinates)) return;
+    const cells = coordinates
+      .filter(cell => Array.isArray(cell) && cell.length >= 2 && Number.isFinite(+cell[0]) && Number.isFinite(+cell[1]))
+      .map(cell => [Math.max(0, Math.trunc(+cell[0])), Math.max(0, Math.trunc(+cell[1]))]);
+    if (cells.length) result[safeName] = cells;
+  });
+  return Object.keys(result).length ? result : null;
+}
+
+function normaliseShutters(shutters) {
+  if (!shutters || typeof shutters !== "object" || Array.isArray(shutters)) return null;
+  const covers = String(shutters.covers || "").trim();
+  const key = String(shutters.key || "").trim();
+  return covers && key ? { covers, key } : null;
+}
+
 function normaliseTier(value) {
+  if (value === "Auto") return "Auto";
   return ({ "Viegla": "Easy", "Vidēja": "Medium", "Grūta": "Hard", "Ekstrēma": "Brutal" })[value] ||
-    (["Easy", "Medium", "Hard", "Brutal"].includes(value) ? value : "Medium");
+    (["Easy", "Medium", "Hard", "Brutal"].includes(value) ? value : "Auto");
 }
 
 function prismLevelToState(level) {
@@ -174,6 +242,10 @@ function prismLevelToState(level) {
     beltCap: level.beltCap,
     seed: level.seed,
     containers: level.containers,
+    mystery: level.mystery,
+    thick: level.thick,
+    regions: level.regions,
+    shutters: level.shutters,
     width,
     height,
     tileSize: 32,
@@ -188,13 +260,20 @@ function prismLevelToState(level) {
 }
 
 function saveDraft() {
-  localStorage.setItem("pixel-level-tool-draft", JSON.stringify(state));
+  levelCollection[activeLevelIndex] = clone(state);
+  localStorage.setItem("pixel-level-tool-draft", JSON.stringify({
+    format: "pixel-level-tool-workspace",
+    levels: levelCollection,
+    activeLevelIndex,
+    importedCollection
+  }));
   $("#saveState").textContent = "Saglabāts lokāli";
   $("#saveState").style.color = "";
 }
 
 let saveTimer;
 function changed(render = true) {
+  levelCollection[activeLevelIndex] = clone(state);
   $("#saveState").textContent = "Saglabā...";
   $("#saveState").style.color = "#ffbd4a";
   clearTimeout(saveTimer);
@@ -238,10 +317,10 @@ function syncForm() {
   $("#tileSize").value = state.tileSize;
   $("#backgroundColor").value = state.backgroundColor;
   $("#backgroundHex").textContent = state.backgroundColor.toUpperCase();
-  $("#imageColorCount").value = imageColorCount;
   $("#author").value = state.author;
   $("#description").value = state.description;
   $("#difficulty").value = state.difficulty;
+  updateDifficultyHint();
   $("#slot").value = state.slot;
   $("#source").value = state.source;
   $("#beltCap").value = state.beltCap;
@@ -251,6 +330,10 @@ function syncForm() {
 function renderPalette() {
   const palette = $("#palette");
   palette.replaceChildren();
+  if (!state.tiles.length) {
+    palette.innerHTML = '<p class="palette-empty">Palete ir tukša. Pievieno flīzi ar +</p>';
+    return;
+  }
   state.tiles.forEach((tile) => {
     const button = document.createElement("button");
     button.className = `tile-swatch${tile.id === selectedTile ? " active" : ""}`;
@@ -350,11 +433,88 @@ function renderAll() {
   renderPalette();
   renderLayers();
   renderContainers();
+  renderMystery();
+  renderThick();
+  renderRegions();
+  renderShutters();
+  renderLevelBrowser();
   renderCanvas();
   $("#canvasWrap").style.transform = `scale(${zoom})`;
   $("#zoomValue").textContent = `${Math.round(zoom * 100)}%`;
   $("#mapStats").textContent = `${state.width} × ${state.height} · ${state.width * state.height} flīzes`;
   updateHistoryButtons();
+}
+
+function updateDifficultyHint() {
+  const hint = $("#difficultyHint");
+  if (!hint) return;
+  if (state.difficulty !== "Auto") {
+    hint.textContent = `Manuāli izvēlēta: ${state.difficulty}.`;
+    return;
+  }
+  hint.textContent = `Automātiski: ${estimateDifficulty(state)} (pēc režģa un mehāniku sarežģītības).`;
+}
+
+function estimateDifficulty(levelState) {
+  const grid = exportedGrid(levelState);
+  const counts = {};
+  let changes = 0;
+  grid.forEach((row, y) => [...row].forEach((code, x) => {
+    counts[code] = (counts[code] || 0) + 1;
+    if (x && grid[y][x - 1] !== code) changes++;
+    if (y && grid[y - 1][x] !== code) changes++;
+  }));
+  const total = levelState.width * levelState.height || 1;
+  const colours = Object.keys(counts).length;
+  const largestPool = Math.max(...Object.values(counts), 0) / total;
+  const boundaryDensity = changes / total;
+  const thickCost = Object.values(levelState.thick || {}).reduce((sum, hp) => sum + Math.max(0, hp - 1), 0);
+  let score = 0;
+  if (colours >= 5) score++;
+  if (colours >= 8) score++;
+  if (boundaryDensity > 1.05) score++;
+  if (boundaryDensity > 1.45) score++;
+  if (largestPool < .34) score++;
+  if (levelState.mystery) score++;
+  if (thickCost >= 4) score++;
+  if (thickCost >= 10) score++;
+  if (levelState.regions && Object.keys(levelState.regions).length) score++;
+  if (levelState.shutters) score += 2;
+  if (levelState.containers.some(container => container.cap <= 2)) score++;
+  return score <= 1 ? "Easy" : score <= 4 ? "Medium" : score <= 7 ? "Hard" : "Brutal";
+}
+
+function resolvedTier(levelState) {
+  return levelState.difficulty === "Auto" ? estimateDifficulty(levelState) : levelState.difficulty;
+}
+
+function renderLevelBrowser() {
+  const root = $("#levelBrowser");
+  root.replaceChildren();
+  $("#levelCount").textContent = levelCollection.length;
+  levelCollection.forEach((level, index) => {
+    const button = document.createElement("button");
+    button.className = `level-browser-item${index === activeLevelIndex ? " active" : ""}`;
+    button.innerHTML = `<b>Slots ${level.slot}</b><span>${escapeHtml(level.name?.trim() || "Untitled")}</span>`;
+    button.title = `Atvērt: ${level.name?.trim() || "Untitled"}`;
+    button.addEventListener("click", () => switchLevel(index));
+    root.append(button);
+  });
+}
+
+function switchLevel(index) {
+  if (index === activeLevelIndex || !levelCollection[index]) return;
+  levelCollection[activeLevelIndex] = clone(state);
+  activeLevelIndex = index;
+  state = clone(levelCollection[index]);
+  activeLayer = 0;
+  selectedTile = state.tiles[0]?.id;
+  history = [];
+  future = [];
+  saveDraft();
+  renderAll();
+  fitCanvas();
+  toast(`Atvērts ${state.name || `slots ${state.slot}`}`);
 }
 
 function renderContainers() {
@@ -392,6 +552,146 @@ function updateContainer(index, values) {
   changed();
 }
 
+function renderMystery() {
+  const enabled = !!state.mystery;
+  $("#mysteryEnabled").checked = enabled;
+  $("#mysterySettings").classList.toggle("is-disabled", !enabled);
+  const mystery = state.mystery || { proportion: 0.25, revealAt: "top", exclude: [] };
+  $("#mysteryProportion").value = mystery.proportion;
+  $("#mysteryProportionOutput").textContent = `${Math.round(mystery.proportion * 100)}%`;
+  $("#mysteryRevealAt").value = mystery.revealAt;
+  const root = $("#mysteryExclude");
+  root.replaceChildren();
+  if (!state.tiles.length) {
+    root.innerHTML = '<span class="mystery-exclude-empty">Nav paletes krāsu</span>';
+    return;
+  }
+  state.tiles.forEach(tile => {
+    const label = document.createElement("label");
+    const checked = mystery.exclude.includes(tile.code) ? " checked" : "";
+    label.innerHTML = `<input type="checkbox" value="${tile.code}"${checked}><span>${tile.code}</span>`;
+    label.querySelector("input").addEventListener("change", event => {
+      if (!state.mystery) return;
+      snapshot();
+      state.mystery.exclude = state.mystery.exclude.filter(code => code !== tile.code);
+      if (event.target.checked) state.mystery.exclude.push(tile.code);
+      changed();
+    });
+    root.append(label);
+  });
+}
+
+function renderThick() {
+  const root = $("#thickCells");
+  root.replaceChildren();
+  const entries = Object.entries(state.thick || {});
+  if (!entries.length) {
+    root.innerHTML = '<p class="mechanic-empty">Nav thick šūnu</p>';
+    return;
+  }
+  entries.forEach(([position, hp]) => {
+    const [x, y] = position.split(",").map(Number);
+    const row = document.createElement("div");
+    row.className = "mechanic-row";
+    row.innerHTML = `<label>X,Y<input data-position value="${x},${y}" aria-label="Thick koordināte"></label>
+      <label>HP<input data-hp type="number" min="1" max="99" value="${hp}"></label>
+      <button class="mechanic-delete" aria-label="Dzēst thick šūnu">×</button>`;
+    row.querySelector("[data-position]").addEventListener("change", event => updateThick(position, event.target.value, hp));
+    row.querySelector("[data-hp]").addEventListener("change", event => updateThick(position, position, Math.max(1, Math.trunc(+event.target.value || 1))));
+    row.querySelector(".mechanic-delete").addEventListener("click", () => {
+      snapshot();
+      delete state.thick[position];
+      if (!Object.keys(state.thick).length) state.thick = null;
+      changed();
+    });
+    root.append(row);
+  });
+}
+
+function updateThick(oldPosition, proposedPosition, hp) {
+  const match = String(proposedPosition).match(/^\s*(\d+)\s*[, ]\s*(\d+)\s*$/);
+  if (!match) { toast("Thick koordināti ievadi formātā x,y", true); renderThick(); return; }
+  const position = `${+match[1]},${+match[2]}`;
+  snapshot();
+  delete state.thick[oldPosition];
+  state.thick[position] = hp;
+  changed();
+}
+
+function renderRegions() {
+  const root = $("#regions");
+  root.replaceChildren();
+  const entries = Object.entries(state.regions || {});
+  if (!entries.length) {
+    root.innerHTML = '<p class="mechanic-empty">Nav izveidotu regions</p>';
+    return;
+  }
+  entries.forEach(([name, cells]) => {
+    const card = document.createElement("div");
+    card.className = "region-card";
+    const coordinateText = cells.map(([x, y]) => `${x},${y}`).join("\n");
+    card.innerHTML = `<div class="region-title"><label>Nosaukums<input data-name value="${escapeAttr(name)}"></label><button class="region-delete" aria-label="Dzēst region">×</button></div>
+      <label>Šūnas<textarea data-cells placeholder="0,0&#10;1,0">${coordinateText}</textarea></label>`;
+    card.querySelector("[data-name]").addEventListener("change", event => renameRegion(name, event.target.value));
+    card.querySelector("[data-cells]").addEventListener("change", event => updateRegionCells(name, event.target.value));
+    card.querySelector(".region-delete").addEventListener("click", () => {
+      snapshot();
+      delete state.regions[name];
+      if (state.shutters?.covers === name || state.shutters?.key === name) state.shutters = null;
+      if (!Object.keys(state.regions).length) state.regions = null;
+      changed();
+    });
+    root.append(card);
+  });
+}
+
+function renameRegion(oldName, newName) {
+  const name = String(newName).trim().slice(0, 48);
+  if (!name || name === oldName) { renderRegions(); return; }
+  if (state.regions[name]) { toast("Šāds region nosaukums jau eksistē", true); renderRegions(); return; }
+  snapshot();
+  state.regions[name] = state.regions[oldName];
+  delete state.regions[oldName];
+  if (state.shutters?.covers === oldName) state.shutters.covers = name;
+  if (state.shutters?.key === oldName) state.shutters.key = name;
+  changed();
+}
+
+function updateRegionCells(name, text) {
+  const cells = [];
+  const seen = new Set();
+  for (const line of text.split(/[\n;]/)) {
+    const match = line.trim().match(/^(\d+)\s*,\s*(\d+)$/);
+    if (!match) continue;
+    const cell = [+match[1], +match[2]];
+    const key = cell.join(",");
+    if (!seen.has(key)) { seen.add(key); cells.push(cell); }
+  }
+  if (!cells.length) { toast("Region jābūt vismaz vienai koordinātei x,y", true); renderRegions(); return; }
+  snapshot();
+  state.regions[name] = cells;
+  changed();
+}
+
+function renderShutters() {
+  const names = Object.keys(state.regions || {});
+  const enabled = !!state.shutters;
+  $("#shuttersEnabled").checked = enabled;
+  $("#shuttersSettings").classList.toggle("is-disabled", !enabled || !names.length);
+  const current = state.shutters || { covers: names[0] || "", key: names[1] || names[0] || "" };
+  ["#shuttersCovers", "#shuttersKey"].forEach((selector, index) => {
+    const select = $(selector);
+    select.replaceChildren();
+    names.forEach(name => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      option.selected = name === (index ? current.key : current.covers);
+      select.append(option);
+    });
+  });
+}
+
 function shade(hex, amount) {
   const value = parseInt(hex.slice(1), 16);
   const r = Math.max(0, Math.min(255, (value >> 16) + amount));
@@ -411,6 +711,10 @@ function cellFromEvent(event) {
 function applyTool(x, y) {
   if (x < 0 || y < 0 || x >= state.width || y >= state.height) return;
   const layer = state.layers[activeLayer];
+  if (activeTool === "brush" && !selectedTile) {
+    toast("Vispirms pievieno vai izvēlies flīzi", true);
+    return;
+  }
   if (activeTool === "picker") {
     for (let i = state.layers.length - 1; i >= 0; i--) {
       const id = state.layers[i].visible && state.layers[i].cells[y][x];
@@ -493,10 +797,6 @@ $("#tileSize").addEventListener("change", (event) => {
 $("#backgroundColor").addEventListener("input", (event) => {
   state.backgroundColor = event.target.value; $("#backgroundHex").textContent = event.target.value.toUpperCase(); changed();
 });
-$("#imageColorCount").addEventListener("change", (event) => {
-  imageColorCount = Math.max(4, Math.min(10, Math.trunc(+event.target.value || 8)));
-  event.target.value = imageColorCount;
-});
 $("#levelName").addEventListener("input", event => { state.name = event.target.value; changed(false); });
 $("#author").addEventListener("input", event => { state.author = event.target.value; changed(false); });
 $("#description").addEventListener("input", event => { state.description = event.target.value; changed(false); });
@@ -560,9 +860,76 @@ $("#clearContainersBtn").addEventListener("click", () => {
   toast("Manuālie containers notīrīti — eksportā atkal izmantos automātisko sadali");
 });
 
+$("#mysteryEnabled").addEventListener("change", (event) => {
+  snapshot();
+  state.mystery = event.target.checked ? { proportion: 0.25, revealAt: "top", exclude: [] } : null;
+  changed();
+});
+$("#mysteryProportion").addEventListener("input", (event) => {
+  if (!state.mystery) return;
+  $("#mysteryProportionOutput").textContent = `${Math.round(+event.target.value * 100)}%`;
+});
+$("#mysteryProportion").addEventListener("change", (event) => {
+  if (!state.mystery) return;
+  snapshot();
+  state.mystery.proportion = +event.target.value;
+  changed();
+});
+$("#mysteryRevealAt").addEventListener("change", (event) => {
+  if (!state.mystery) return;
+  snapshot();
+  state.mystery.revealAt = event.target.value;
+  changed();
+});
+
+$("#addThickBtn").addEventListener("click", () => {
+  const used = new Set(Object.keys(state.thick || {}));
+  let x = 0, y = 0;
+  while (used.has(`${x},${y}`) && y < state.height) {
+    x = (x + 1) % state.width;
+    if (!x) y++;
+  }
+  if (y >= state.height) { toast("Visas režģa koordinātes jau izmantotas", true); return; }
+  snapshot();
+  state.thick ||= {};
+  state.thick[`${x},${y}`] = 2;
+  changed();
+});
+
+$("#addRegionBtn").addEventListener("click", () => {
+  snapshot();
+  state.regions ||= {};
+  let number = Object.keys(state.regions).length + 1;
+  let name = `region-${number}`;
+  while (state.regions[name]) name = `region-${++number}`;
+  state.regions[name] = [[0, 0]];
+  changed();
+});
+
+$("#shuttersEnabled").addEventListener("change", (event) => {
+  if (event.target.checked && !Object.keys(state.regions || {}).length) {
+    event.target.checked = false;
+    toast("Vispirms izveido vismaz vienu region", true);
+    return;
+  }
+  snapshot();
+  const names = Object.keys(state.regions || {});
+  state.shutters = event.target.checked ? { covers: names[0], key: names[1] || names[0] } : null;
+  changed();
+});
+$("#shuttersCovers").addEventListener("change", event => {
+  if (!state.shutters) return;
+  snapshot(); state.shutters.covers = event.target.value; changed();
+});
+$("#shuttersKey").addEventListener("change", event => {
+  if (!state.shutters) return;
+  snapshot(); state.shutters.key = event.target.value; changed();
+});
+
 function openTileDialog(tile = null) {
   editingTileId = tile?.id || null;
   $("#tileDialogTitle").textContent = tile ? "Rediģēt flīzi" : "Pievienot flīzi";
+  $("#deleteTileBtn").hidden = !tile;
   $("#tileName").value = tile?.name || "";
   $("#tileType").value = tile?.type || "solid";
   $("#tileColor").value = tile?.color || "#8b5cf6";
@@ -595,14 +962,58 @@ $("#tileForm").addEventListener("submit", (event) => {
   $("#tileDialog").close(); changed();
 });
 
+$("#deleteTileBtn").addEventListener("click", () => {
+  const tile = state.tiles.find(item => item.id === editingTileId);
+  if (!tile) return;
+  const cellCount = state.layers.reduce((total, layer) => total + layer.cells.flat().filter(id => id === tile.id).length, 0);
+  const message = cellCount
+    ? `Dzēst flīzi “${tile.name}”? Tiks notīrītas arī ${cellCount} tās šūnas režģī.`
+    : `Dzēst flīzi “${tile.name}”?`;
+  if (!confirm(message)) return;
+  snapshot();
+  state.layers.forEach(layer => layer.cells.forEach(row => row.forEach((id, index) => {
+    if (id === tile.id) row[index] = null;
+  })));
+  state.containers = state.containers.filter(container => container.c !== tile.code);
+  if (state.mystery) state.mystery.exclude = state.mystery.exclude.filter(code => code !== tile.code);
+  state.tiles = state.tiles.filter(item => item.id !== tile.id);
+  selectedTile = state.tiles[0]?.id;
+  editingTileId = null;
+  $("#tileDialog").close();
+  changed();
+  toast(`Flīze “${tile.name}” dzēsta`);
+});
+
 function nextAvailableCode() {
   const used = new Set(state.tiles.map(tile => tile.code));
   return [...prismCodes].find(code => !used.has(code)) || "X";
 }
 
 $("#newBtn").addEventListener("click", () => {
-  if (!confirm("Izveidot jaunu līmeni? Pašreizējais melnraksts tiks aizvietots.")) return;
-  snapshot(); state = makeInitialState(); activeLayer = 0; selectedTile = state.tiles[0].id; changed(); fitCanvas();
+  if (!confirm("Sākt jaunu JSON projektu? Tiks izdzēsti visi pašreizējā saraksta līmeņi.")) return;
+  levelCollection = [makeInitialState()];
+  activeLevelIndex = 0;
+  importedCollection = false;
+  state = clone(levelCollection[activeLevelIndex]);
+  activeLayer = 0; selectedTile = state.tiles[0].id; history = []; future = [];
+  changed(); fitCanvas();
+});
+
+$("#addLevelBtn").addEventListener("click", () => {
+  levelCollection[activeLevelIndex] = clone(state);
+  const next = makeInitialState();
+  next.slot = Math.max(0, ...levelCollection.map(level => +level.slot || 0)) + 1;
+  next.name = `Līmenis ${next.slot}`;
+  levelCollection.push(next);
+  activeLevelIndex = levelCollection.length - 1;
+  state = clone(next);
+  activeLayer = 0;
+  selectedTile = state.tiles[0]?.id;
+  history = [];
+  future = [];
+  changed();
+  fitCanvas();
+  toast(`Pievienots līmenis slotā ${next.slot}`);
 });
 $("#importBtn").addEventListener("click", () => $("#fileInput").click());
 $("#fileInput").addEventListener("change", async (event) => {
@@ -610,13 +1021,26 @@ $("#fileInput").addEventListener("change", async (event) => {
     const text = await event.target.files[0].text();
     const parsed = JSON.parse(text);
     let source = parsed;
-    if (Array.isArray(parsed?.levels) && parsed.levels.length > 1) {
+    if (Array.isArray(parsed?.levels) && parsed.levels.length) {
+      const importedLevels = parsed.levels.map(normaliseLevel);
+      let index = 0;
+      if (importedLevels.length > 1) {
       const requested = prompt(`Failā ir ${parsed.levels.length} līmeņi. Ievadi importējamā līmeņa slotu:`, parsed.levels[0].slot);
       if (requested === null) return;
-      source = parsed.levels.find(level => String(level.slot) === requested.trim()) || parsed.levels[0];
+        index = Math.max(0, importedLevels.findIndex(level => String(level.slot) === requested.trim()));
+      }
+      levelCollection = importedLevels;
+      activeLevelIndex = index;
+      importedCollection = true;
+      source = levelCollection[activeLevelIndex];
     }
     const imported = normaliseLevel(source);
-    snapshot(); state = imported; activeLayer = 0; selectedTile = state.tiles[0]?.id; changed(); fitCanvas();
+    if (!Array.isArray(parsed?.levels)) {
+      levelCollection = [imported];
+      activeLevelIndex = 0;
+      importedCollection = false;
+    }
+    state = clone(imported); activeLayer = 0; selectedTile = state.tiles[0]?.id; history = []; future = []; changed(); fitCanvas();
     toast("Līmenis veiksmīgi importēts");
   } catch (error) { toast(`Neizdevās importēt: ${error.message}`, true); }
   event.target.value = "";
@@ -636,8 +1060,91 @@ $("#imageInput").addEventListener("change", async (event) => {
     return;
   }
   try {
-    const image = await readImage(file);
-    const result = imageToLevel(image, imageGridSize, imageGridSize, imageColorCount);
+    pendingImageFile = file;
+    pendingImage = await readImage(file);
+    $("#imageFileName").textContent = file.name;
+    $("#imageColorRange").value = imageColorCount;
+    $("#imageColorOutput").textContent = imageColorCount;
+    $("#imageConversionMode").value = "auto";
+    $("#imageOptionsDialog").showModal();
+    updateImageImportPreview();
+  } catch (error) {
+    pendingImageFile = null;
+    pendingImage = null;
+    toast(`Neizdevās nolasīt attēlu: ${error.message}`, true);
+  }
+});
+
+$("#imageColorRange").addEventListener("input", (event) => {
+  imageColorCount = Math.max(2, Math.min(10, Math.trunc(+event.target.value || 8)));
+  $("#imageColorOutput").textContent = imageColorCount;
+  scheduleImagePreview();
+});
+$("#imageConversionMode").addEventListener("change", updateImageImportPreview);
+
+$("#cancelImageImport").addEventListener("click", cancelImageImport);
+$("#cancelImageImportSecondary").addEventListener("click", cancelImageImport);
+$("#imageOptionsDialog").addEventListener("close", () => {
+  pendingImageFile = null;
+  pendingImage = null;
+  pendingImageResult = null;
+  clearTimeout(previewTimer);
+});
+$("#confirmImageImport").addEventListener("click", async () => {
+  if (!pendingImageFile || !pendingImage) return;
+  const file = pendingImageFile;
+  const image = pendingImage;
+  const mode = $("#imageConversionMode").value;
+  const result = pendingImageResult || imageToLevel(image, imageGridSize, imageGridSize, imageColorCount, mode);
+  pendingImageFile = null;
+  pendingImage = null;
+  pendingImageResult = null;
+  $("#imageOptionsDialog").close();
+  importImageResult(file, result);
+});
+
+function cancelImageImport() {
+  pendingImageFile = null;
+  pendingImage = null;
+  pendingImageResult = null;
+  $("#imageOptionsDialog").close();
+}
+
+function scheduleImagePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(updateImageImportPreview, 70);
+}
+
+function updateImageImportPreview() {
+  if (!pendingImage) return;
+  const mode = $("#imageConversionMode").value;
+  pendingImageResult = imageToLevel(pendingImage, imageGridSize, imageGridSize, imageColorCount, mode);
+  const preview = $("#imageImportPreview");
+  const context = preview.getContext("2d");
+  const cellSize = preview.width / imageGridSize;
+  context.fillStyle = pendingImageResult.background;
+  context.fillRect(0, 0, preview.width, preview.height);
+  pendingImageResult.cells.forEach((row, y) => row.forEach((tileId, x) => {
+    const tile = pendingImageResult.tiles.find(item => item.id === tileId);
+    context.fillStyle = tile?.color || pendingImageResult.background;
+    context.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+  }));
+  context.strokeStyle = "#ffffff24";
+  context.lineWidth = 1;
+  for (let index = 0; index <= imageGridSize; index++) {
+    context.beginPath();
+    context.moveTo(index * cellSize, 0);
+    context.lineTo(index * cellSize, preview.height);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(0, index * cellSize);
+    context.lineTo(preview.width, index * cellSize);
+    context.stroke();
+  }
+}
+
+function importImageResult(file, result) {
+  try {
     snapshot();
     state.width = imageGridSize;
     state.height = imageGridSize;
@@ -658,7 +1165,7 @@ $("#imageInput").addEventListener("change", async (event) => {
   } catch (error) {
     toast(`Neizdevās apstrādāt attēlu: ${error.message}`, true);
   }
-});
+}
 
 function readImage(file) {
   return new Promise((resolve, reject) => {
@@ -670,7 +1177,7 @@ function readImage(file) {
   });
 }
 
-function imageToLevel(image, width, height, maxColours) {
+function imageToLevel(image, width, height, maxColours, mode = "auto") {
   const naturalWidth = image.naturalWidth || image.width;
   const naturalHeight = image.naturalHeight || image.height;
   const analysisScale = Math.min(1, 640 / Math.max(naturalWidth, naturalHeight));
@@ -684,10 +1191,14 @@ function imageToLevel(image, width, height, maxColours) {
   const analysisPixels = analysisContext.getImageData(0, 0, analysisWidth, analysisHeight).data;
   const background = imageCornerColour(analysisPixels, analysisWidth, analysisHeight);
   const foreground = imageForegroundBounds(analysisPixels, analysisWidth, analysisHeight, background);
-  const isolatedSubject = foreground.width * foreground.height < analysisWidth * analysisHeight * 0.82;
-  const analysisCrop = isolatedSubject
-    ? foreground
-    : imageSaliencyCrop(analysisPixels, analysisWidth, analysisHeight);
+  const autoIsolated = foreground.width * foreground.height < analysisWidth * analysisHeight * 0.82;
+  const isolatedSubject = mode === "object" || (mode === "auto" && autoIsolated);
+  const preserveFullImage = mode === "full";
+  const analysisCrop = preserveFullImage
+    ? { x: 0, y: 0, width: analysisWidth, height: analysisHeight }
+    : isolatedSubject
+      ? foreground
+      : imageSaliencyCrop(analysisPixels, analysisWidth, analysisHeight);
   const cropPixels = analysisContext.getImageData(
     Math.floor(analysisCrop.x),
     Math.floor(analysisCrop.y),
@@ -711,6 +1222,8 @@ function imageToLevel(image, width, height, maxColours) {
   };
   if (isolatedSubject) {
     drawImageCropContain(sourceContext, image, crop, rasterWidth, rasterHeight, background);
+  } else if (preserveFullImage) {
+    drawImageCropContain(sourceContext, image, crop, rasterWidth, rasterHeight, background, false);
   } else {
     drawImageCropFill(sourceContext, image, crop, rasterWidth, rasterHeight);
   }
@@ -724,14 +1237,23 @@ function imageToLevel(image, width, height, maxColours) {
     symbol: "",
     flat: true
   }));
-  const cells = rasterToGrid(pixels, rasterWidth, rasterHeight, width, height, palette, tiles);
+  const cells = rasterToGrid(
+    pixels,
+    rasterWidth,
+    rasterHeight,
+    width,
+    height,
+    palette,
+    tiles,
+    { isolatedSubject, background }
+  );
   return { tiles, cells, background: rgbToHex(background) };
 }
 
-function drawImageCropContain(context, image, crop, width, height, background) {
+function drawImageCropContain(context, image, crop, width, height, background, withPadding = true) {
   context.fillStyle = rgbToHex(background);
   context.fillRect(0, 0, width, height);
-  const padding = Math.max(0, Math.round(Math.min(width, height) / 12));
+  const padding = withPadding ? Math.max(0, Math.round(Math.min(width, height) / 24)) : 0;
   const availableWidth = width - padding * 2;
   const availableHeight = height - padding * 2;
   const scale = Math.min(availableWidth / crop.width, availableHeight / crop.height);
@@ -752,13 +1274,16 @@ function drawImageCropFill(context, image, crop, width, height) {
   context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, width, height);
 }
 
-function rasterToGrid(pixels, rasterWidth, rasterHeight, gridWidth, gridHeight, palette, tiles) {
+function rasterToGrid(pixels, rasterWidth, rasterHeight, gridWidth, gridHeight, palette, tiles, options) {
   const blockWidth = rasterWidth / gridWidth;
   const blockHeight = rasterHeight / gridHeight;
+  const backgroundIndex = nearestColour(options.background.r, options.background.g, options.background.b, palette);
+  const backgroundThreshold = 38 ** 2;
   return Array.from({ length: gridHeight }, (_, gridY) =>
     Array.from({ length: gridWidth }, (_, gridX) => {
       const counts = Array(palette.length).fill(0);
       const average = { r: 0, g: 0, b: 0, count: 0 };
+      const foreground = { r: 0, g: 0, b: 0, count: 0 };
       const startX = Math.floor(gridX * blockWidth);
       const endX = Math.ceil((gridX + 1) * blockWidth);
       const startY = Math.floor(gridY * blockHeight);
@@ -772,7 +1297,23 @@ function rasterToGrid(pixels, rasterWidth, rasterHeight, gridWidth, gridHeight, 
           average.g += g;
           average.b += b;
           average.count++;
+          if (colourDistance({ r, g, b }, options.background) > backgroundThreshold) {
+            foreground.r += r;
+            foreground.g += g;
+            foreground.b += b;
+            foreground.count++;
+          }
         }
+      }
+      if (options.isolatedSubject) {
+        const coverage = foreground.count / average.count;
+        if (coverage < 0.28) return tiles[backgroundIndex].id;
+        const foregroundColour = {
+          r: foreground.r / foreground.count,
+          g: foreground.g / foreground.count,
+          b: foreground.b / foreground.count
+        };
+        return tiles[nearestForegroundColour(foregroundColour, palette, backgroundIndex)].id;
       }
       const dominant = counts.indexOf(Math.max(...counts));
       const dominantShare = counts[dominant] / average.count;
@@ -782,6 +1323,21 @@ function rasterToGrid(pixels, rasterWidth, rasterHeight, gridWidth, gridHeight, 
       return tiles[selected].id;
     })
   );
+}
+
+function nearestForegroundColour(colour, palette, backgroundIndex) {
+  if (palette.length === 1) return 0;
+  let winner = backgroundIndex === 0 ? 1 : 0;
+  let distance = Infinity;
+  palette.forEach((candidate, index) => {
+    if (index === backgroundIndex) return;
+    const candidateDistance = colourDistance(colour, candidate);
+    if (candidateDistance < distance) {
+      distance = candidateDistance;
+      winner = index;
+    }
+  });
+  return winner;
 }
 
 function imageCornerColour(pixels, width, height) {
@@ -885,7 +1441,9 @@ function adaptiveImagePalette(pixels, maxColours) {
     count: entry.count
   })).sort((a, b) => b.count - a.count);
   const clusters = [];
-  const mergeDistance = 58 ** 2;
+  // Apvienojam tikai gandrīz identiskus JPEG trokšņa toņus. Lietotāja
+  // izvēlētos starptoņus vairs nesaspiežam līdz divām pamatkrāsām.
+  const mergeDistance = 22 ** 2;
   colours.forEach(colour => {
     let target = -1;
     let distance = Infinity;
@@ -905,10 +1463,24 @@ function adaptiveImagePalette(pixels, maxColours) {
     }
   });
   clusters.sort((a, b) => b.count - a.count);
-  const totalPixels = pixels.length / 4;
-  const twoColourCoverage = ((clusters[0]?.count || 0) + (clusters[1]?.count || 0)) / totalPixels;
-  const paletteSize = twoColourCoverage >= 0.92 ? Math.min(2, clusters.length) : Math.min(maxColours, clusters.length);
-  return clusters.slice(0, Math.max(1, paletteSize)).map(cluster => nearestSourceColour(cluster, pixels));
+  if (!clusters.length) return [{ r: 0, g: 0, b: 0 }];
+
+  // Farthest-point atlase saglabā gan biežākās krāsas, gan vizuāli atšķirīgus
+  // akcentus. Rezultātā izvēle "8" tiešām cenšas dot astoņu krāsu paleti.
+  const selected = [clusters[0]];
+  const candidates = clusters.slice(1);
+  while (selected.length < maxColours && candidates.length) {
+    let winner = 0;
+    let winnerScore = -1;
+    candidates.forEach((candidate, index) => {
+      const separation = Math.min(...selected.map(colour => colourDistance(candidate, colour)));
+      const frequencyWeight = 1 + Math.log2(candidate.count + 1) * 0.18;
+      const score = separation * frequencyWeight;
+      if (score > winnerScore) { winnerScore = score; winner = index; }
+    });
+    selected.push(candidates.splice(winner, 1)[0]);
+  }
+  return selected.map(cluster => nearestSourceColour(cluster, pixels));
 }
 
 function colourDistance(a, b) {
@@ -958,49 +1530,64 @@ $("#exportBtn").addEventListener("click", () => {
 });
 
 function buildPrismCollection() {
-  const palette = {};
-  state.tiles.forEach(tile => { palette[tile.code] = tile.color.toUpperCase(); });
-  if (!palette.K) palette.K = state.backgroundColor.toUpperCase();
+  levelCollection[activeLevelIndex] = clone(state);
+  const levels = levelCollection.map(buildPrismLevel).sort((a, b) => a.slot - b.slot);
+  return {
+    game: "Prism Pop!",
+    exported: new Date().toISOString().slice(0, 10),
+    count: levels.length,
+    levels
+  };
+}
 
-  const grid = exportedGrid();
+function buildPrismLevel(levelState) {
+  const palette = {};
+  levelState.tiles.forEach(tile => { palette[tile.code] = tile.color.toUpperCase(); });
+  if (!palette.K) palette.K = levelState.backgroundColor.toUpperCase();
+
+  const grid = exportedGrid(levelState);
   const counts = {};
   grid.forEach(row => [...row].forEach(code => { counts[code] = (counts[code] || 0) + 1; }));
-  const containers = state.containers.length ? sortContainers(state.containers) : buildContainers(counts);
-  const level = {
-    slot: state.slot,
-    name: state.name.trim() || "Untitled",
-    tier: state.difficulty,
-    source: state.source,
+  const containers = levelState.containers.length ? sortContainers(levelState.containers) : buildContainers(counts);
+  return {
+    slot: levelState.slot,
+    name: levelState.name.trim() || "Untitled",
+    tier: levelState.difficulty,
+    source: levelState.source,
     grid,
     palette,
     containers,
     links: [],
-    mystery: null,
-    thick: null,
-    regions: null,
-    shutters: null,
-    beltCap: state.beltCap,
-    seed: state.seed,
+    mystery: exportMystery(levelState),
+    thick: levelState.thick ? clone(levelState.thick) : null,
+    regions: levelState.regions ? clone(levelState.regions) : null,
+    shutters: levelState.shutters ? clone(levelState.shutters) : null,
+    beltCap: levelState.beltCap,
+    seed: levelState.seed,
     fillRule: "gravity"
-  };
-  return {
-    game: "Prism Pop!",
-    exported: new Date().toISOString().slice(0, 10),
-    count: 1,
-    levels: [level]
   };
 }
 
-function exportedGrid() {
-  return Array.from({ length: state.height }, (_, y) =>
-    Array.from({ length: state.width }, (_, x) => {
+function exportedGrid(levelState = state) {
+  return Array.from({ length: levelState.height }, (_, y) =>
+    Array.from({ length: levelState.width }, (_, x) => {
       let tileId = null;
-      state.layers.forEach(layer => {
+      levelState.layers.forEach(layer => {
         if (layer.visible && layer.cells[y][x]) tileId = layer.cells[y][x];
       });
-      return state.tiles.find(tile => tile.id === tileId)?.code || "K";
+      return levelState.tiles.find(tile => tile.id === tileId)?.code || "K";
     }).join("")
   );
+}
+
+function exportMystery(levelState = state) {
+  if (!levelState.mystery) return null;
+  const mystery = {
+    proportion: levelState.mystery.proportion,
+    revealAt: levelState.mystery.revealAt
+  };
+  if (levelState.mystery.exclude.length) mystery.exclude = [...levelState.mystery.exclude];
+  return mystery;
 }
 
 function sortContainers(containers) {
@@ -1055,6 +1642,29 @@ function validate() {
   if (state.tiles.length > 10 || (state.tiles.length < 4 && !state.tiles.every(tile => tile.flat))) {
     warnings.push("Prism Pop! paletē ieteicamas 4–10 krāsas.");
   }
+  if (state.mystery) {
+    if (state.mystery.proportion <= 0 || state.mystery.proportion > 1) errors.push("Mystery proportion jābūt intervālā no 0 līdz 1.");
+    const invalidMysteryCodes = state.mystery.exclude.filter(code => !codes.includes(code));
+    if (invalidMysteryCodes.length) errors.push(`Mystery exclude izmanto nezināmu krāsu: ${invalidMysteryCodes.join(", ")}.`);
+  }
+  if (state.thick) {
+    Object.entries(state.thick).forEach(([position, hp]) => {
+      const [x, y] = position.split(",").map(Number);
+      if (x >= state.width || y >= state.height) errors.push(`Thick koordināte ${position} ir ārpus režģa.`);
+      if (hp < 1) errors.push(`Thick ${position} HP jābūt vismaz 1.`);
+    });
+  }
+  if (state.regions) {
+    Object.entries(state.regions).forEach(([name, cells]) => cells.forEach(([x, y]) => {
+      if (x >= state.width || y >= state.height) errors.push(`Region ${name} koordināte ${x},${y} ir ārpus režģa.`);
+    }));
+  }
+  if (state.shutters) {
+    const names = new Set(Object.keys(state.regions || {}));
+    if (!names.has(state.shutters.covers) || !names.has(state.shutters.key)) {
+      errors.push("Shutters covers un key jāatsaucas uz esošiem regions.");
+    }
+  }
   if (state.containers.length) {
     const positions = new Set();
     state.containers.forEach(container => {
@@ -1083,8 +1693,16 @@ function renderValidation(errors, warnings) {
     <small>${messages.length ? escapeHtml(messages.join(" ")) : "JSON var eksportēt"}</small></p></div>`;
 }
 $("#validateBtn").addEventListener("click", () => {
+  let assignedTier = null;
+  if (state.difficulty === "Auto") {
+    assignedTier = estimateDifficulty(state);
+    state.difficulty = assignedTier;
+    changed(false);
+    syncForm();
+  }
   const { errors, warnings } = validate();
-  toast(errors.length ? `${errors.length} kļūda(s)` : warnings.length ? `${warnings.length} brīdinājums(i)` : "Pārbaude pabeigta — viss kārtībā", !!errors.length);
+  const outcome = errors.length ? `${errors.length} kļūda(s)` : warnings.length ? `${warnings.length} brīdinājums(i)` : "Pārbaude pabeigta — viss kārtībā";
+  toast(assignedTier ? `Automātiski izvēlēta grūtība: ${assignedTier}. ${outcome}` : outcome, !!errors.length);
 });
 
 $("#previewBtn").addEventListener("click", () => {

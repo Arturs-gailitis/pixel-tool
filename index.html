@@ -20,6 +20,7 @@
     </div>
     <nav class="top-actions" aria-label="Faila darbības">
       <button id="newBtn" class="button ghost"><span>＋</span> Jauns</button>
+      <button id="addLevelBtn" class="button ghost" title="Pievienot līmeni pašreizējam JSON failam"><span>＋</span> Pievienot līmeni</button>
       <button id="importImageBtn" class="button ghost"><span>▧</span> Ielikt attēlu</button>
       <button id="importBtn" class="button ghost"><span>↥</span> Importēt</button>
       <button id="exportBtn" class="button primary"><span>⇩</span> Eksportēt JSON</button>
@@ -41,8 +42,7 @@
           <button id="resizeBtn" class="button full">Mainīt režģa izmēru</button>
           <label>Flīzes izmērs <span><input id="tileSize" type="number" min="8" max="256" value="32"> px</span></label>
           <label>Fona krāsa <span class="color-field"><input id="backgroundColor" type="color" value="#17151f"><code id="backgroundHex">#17151F</code></span></label>
-          <label>Attēla krāsas <span><input id="imageColorCount" type="number" min="4" max="10" value="8"> max.</span></label>
-          <p class="hint image-hint">Ieliec attēlu — tas tiks samazināts līdz režģim un pārvērsts paletē.</p>
+          <p class="hint image-hint">Ieliec attēlu — pirms pārveidošanas izvēlēsies krāsu skaitu.</p>
         </div>
       </section>
 
@@ -116,14 +116,16 @@
           <label>Autors<input id="author" placeholder="Tavs vārds"></label>
           <label>Grūtība
             <select id="difficulty">
+              <option value="Auto" selected>Automātiski noteikt pārbaudē</option>
               <option value="Easy">Viegla (Easy)</option>
-              <option value="Medium" selected>Vidēja (Medium)</option>
+              <option value="Medium">Vidēja (Medium)</option>
               <option value="Hard">Grūta (Hard)</option>
               <option value="Brutal">Ekstrēma (Brutal)</option>
             </select>
           </label>
+          <p id="difficultyHint" class="difficulty-hint"></p>
           <div class="metadata-row">
-            <label>Slots<input id="slot" type="number" min="1" max="999" value="19"></label>
+            <label>Slots<input id="slot" type="number" min="1" max="999" value="1"></label>
             <label>Jostas limits<input id="beltCap" type="number" min="1" max="999" value="24"></label>
           </div>
           <label>Avots
@@ -151,14 +153,70 @@
         <p class="hint">Manuāli pievienotie containers tiks eksportēti tieši tādā secībā.</p>
       </section>
 
+      <section class="mystery-section">
+        <div class="section-heading">
+          <div><span class="eyebrow">07</span><h2>Mystery</h2></div>
+          <label class="toggle-label" title="Ieslēgt mystery objektu"><input id="mysteryEnabled" type="checkbox"><span></span></label>
+        </div>
+        <div id="mysterySettings" class="mystery-settings">
+          <label>Daļa no containers
+            <span class="range-with-value"><input id="mysteryProportion" type="range" min="0.05" max="1" step="0.05" value="0.25"><output id="mysteryProportionOutput">25%</output></span>
+          </label>
+          <label>Atklāšanas vieta
+            <select id="mysteryRevealAt"><option value="top">top</option><option value="bottom">bottom</option></select>
+          </label>
+          <div><span class="field-label">Neiekļautās krāsas</span><div id="mysteryExclude" class="mystery-exclude"></div></div>
+        </div>
+        <p class="hint">`proportion` nosaka mystery containers daļu. Izslēgtās krāsas nonāk JSON `exclude` laukā.</p>
+      </section>
+
+      <section class="thick-section">
+        <div class="section-heading">
+          <div><span class="eyebrow">08</span><h2>Thick</h2></div>
+          <button id="addThickBtn" class="icon-button add" aria-label="Pievienot thick šūnu">＋</button>
+        </div>
+        <div id="thickCells" class="mechanic-list"></div>
+        <p class="hint">Katrs ieraksts eksportējas kā `"x,y": hp`.</p>
+      </section>
+
+      <section class="regions-section">
+        <div class="section-heading">
+          <div><span class="eyebrow">09</span><h2>Regions</h2></div>
+          <button id="addRegionBtn" class="icon-button add" aria-label="Pievienot reģionu">＋</button>
+        </div>
+        <div id="regions" class="regions-list"></div>
+        <p class="hint">Koordinātas ievadi pa vienai rindā formātā `x,y`.</p>
+      </section>
+
+      <section class="shutters-section">
+        <div class="section-heading">
+          <div><span class="eyebrow">10</span><h2>Shutters</h2></div>
+          <label class="toggle-label" title="Ieslēgt shutters"><input id="shuttersEnabled" type="checkbox"><span></span></label>
+        </div>
+        <div id="shuttersSettings" class="shutters-settings">
+          <label>Aizsedzamais reģions<select id="shuttersCovers"></select></label>
+          <label>Atslēgas reģions<select id="shuttersKey"></select></label>
+        </div>
+        <p class="hint">Abiem laukiem jānorāda iepriekš izveidots regions nosaukums.</p>
+      </section>
+
       <section class="validation-section">
         <div class="section-heading">
-          <div><span class="eyebrow">07</span><h2>Pārbaude</h2></div>
+          <div><span class="eyebrow">11</span><h2>Pārbaude</h2></div>
         </div>
         <div id="validation" class="validation">
           <div><span class="check">✓</span><p><b>Līmenis gatavs</b><small>JSON var eksportēt</small></p></div>
         </div>
         <button id="validateBtn" class="button full">Pārbaudīt līmeni</button>
+      </section>
+
+      <section class="level-browser-section">
+        <div class="section-heading">
+          <div><span class="eyebrow">12</span><h2>Visi līmeņi</h2></div>
+          <span id="levelCount" class="level-count">1</span>
+        </div>
+        <div id="levelBrowser" class="level-browser"></div>
+        <p class="hint">Nospied uz līmeņa, lai to atvērtu redaktorā.</p>
       </section>
     </aside>
   </main>
@@ -181,10 +239,39 @@
       <label>JSON kods<input id="tileCode" maxlength="1" pattern="[A-Za-z0-9]" placeholder="A" required></label>
       <label>Simbols<input id="tileSymbol" maxlength="2" placeholder="◆"></label>
       <menu>
+        <button id="deleteTileBtn" type="button" class="button danger" hidden>Dzēst flīzi</button>
         <button value="cancel" class="button ghost">Atcelt</button>
         <button id="saveTileBtn" value="default" class="button primary">Saglabāt</button>
       </menu>
     </form>
+  </dialog>
+
+  <dialog id="imageOptionsDialog" class="image-options-dialog">
+    <div class="dialog-heading">
+      <div><span class="eyebrow">ATTĒLA IMPORTS</span><h2>Izvēlies krāsu skaitu</h2></div>
+      <button id="cancelImageImport" class="icon-button" aria-label="Aizvērt">×</button>
+    </div>
+    <p id="imageFileName" class="image-file-name"></p>
+    <label class="image-mode-label">Attēla veids
+      <select id="imageConversionMode">
+        <option value="auto" selected>Auto — noteikt automātiski</option>
+        <option value="object">Objekts vai logo</option>
+        <option value="photo">Fotogrāfija — galvenais apgabals</option>
+        <option value="full">Pilns attēls bez apgriešanas</option>
+      </select>
+    </label>
+    <div class="image-import-preview">
+      <canvas id="imageImportPreview" width="240" height="240" aria-label="12 reiz 12 attēla priekšskatījums"></canvas>
+      <span>12 × 12 priekšskatījums</span>
+    </div>
+    <label class="colour-count-label" for="imageColorRange">Izmantot krāsas <output id="imageColorOutput">8</output></label>
+    <input id="imageColorRange" type="range" min="2" max="10" value="8" step="1">
+    <div class="colour-count-scale"><span>2</span><span>10</span></div>
+    <p class="dialog-help">Mazāk krāsu — tīrāks pikseļu stils. Vairāk krāsu — vairāk attēla detaļu.</p>
+    <div class="dialog-actions">
+      <button id="cancelImageImportSecondary" class="button ghost">Atcelt</button>
+      <button id="confirmImageImport" class="button primary">Izveidot 12 × 12 režģi</button>
+    </div>
   </dialog>
 
   <dialog id="previewDialog" class="preview-dialog">
