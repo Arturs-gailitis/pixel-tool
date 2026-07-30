@@ -1552,16 +1552,37 @@ function rgbToHex({ r, g, b }) {
 
 $("#exportBtn").addEventListener("click", () => {
   const report = validate();
-  if (report.errors.length && !confirm(`${report.errors.join("\n")}\n\nVai tomēr eksportēt?`)) return;
-  const exportData = buildPrismCollection();
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "all-levels.json";
-  link.click();
-  URL.revokeObjectURL(link.href);
-  toast("JSON fails eksportēts");
+  try {
+    const exportData = buildPrismCollection();
+    downloadJson(exportData, "all-levels.json");
+    toast(report.errors.length ? "JSON fails eksportēts ar validācijas brīdinājumiem" : "JSON fails eksportēts");
+  } catch (error) {
+    console.error("JSON export failed", error);
+    toast("Neizdevās eksportēt JSON failu", true);
+  }
 });
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+  if (typeof navigator.msSaveOrOpenBlob === "function") {
+    navigator.msSaveOrOpenBlob(blob, filename);
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.append(link);
+  link.click();
+
+  // Pārlūkam jāsaņem iespēja sākt lejupielādi, pirms atbrīvojam Blob URL.
+  setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 1000);
+}
 
 function buildPrismCollection() {
   levelCollection[activeLevelIndex] = clone(state);
@@ -1620,8 +1641,13 @@ function exportMystery(levelState = state) {
     proportion: levelState.mystery.proportion,
     revealAt: levelState.mystery.revealAt
   };
-  if (levelState.mystery.exclude.length) mystery.exclude = [...levelState.mystery.exclude];
+  const exclude = mysteryExclude(levelState.mystery);
+  if (exclude.length) mystery.exclude = [...exclude];
   return mystery;
+}
+
+function mysteryExclude(mystery) {
+  return Array.isArray(mystery?.exclude) ? mystery.exclude : [];
 }
 
 function sortContainers(containers) {
@@ -1678,7 +1704,7 @@ function validate() {
   }
   if (state.mystery) {
     if (state.mystery.proportion <= 0 || state.mystery.proportion > 1) errors.push("Mystery proportion jābūt intervālā no 0 līdz 1.");
-    const invalidMysteryCodes = state.mystery.exclude.filter(code => !codes.includes(code));
+    const invalidMysteryCodes = mysteryExclude(state.mystery).filter(code => !codes.includes(code));
     if (invalidMysteryCodes.length) errors.push(`Mystery exclude izmanto nezināmu krāsu: ${invalidMysteryCodes.join(", ")}.`);
   }
   if (state.thick) {
@@ -1712,7 +1738,8 @@ function validate() {
     const containerCounts = {};
     exportedGrid().forEach(row => [...row].forEach(code => { gridCounts[code] = (gridCounts[code] || 0) + 1; }));
     state.containers.forEach(container => { containerCounts[container.c] = (containerCounts[container.c] || 0) + container.cap; });
-    const mismatches = new Set([...Object.keys(gridCounts), ...Object.keys(containerCounts)]).filter(code => (gridCounts[code] || 0) !== (containerCounts[code] || 0));
+    const mismatches = [...new Set([...Object.keys(gridCounts), ...Object.keys(containerCounts)])]
+      .filter(code => (gridCounts[code] || 0) !== (containerCounts[code] || 0));
     if (mismatches.length) warnings.push(`Container ietilpība nesakrīt ar režģi krāsām: ${mismatches.join(", ")}.`);
   }
   renderValidation(errors, warnings);
