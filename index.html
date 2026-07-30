@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="lv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#17151f">
+  <title>Pixel Level Tool</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Pixel Level Tool sākums">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span><b>PIXEL</b><small>LEVEL TOOL</small></span>
+    </a>
+    <div class="level-title">
+      <label for="levelName">LĪMEŅA NOSAUKUMS</label>
+      <input id="levelName" value="Mans pirmais līmenis" maxlength="80">
+      <span id="saveState" class="save-state">Saglabāts lokāli</span>
+    </div>
+    <nav class="top-actions" aria-label="Faila darbības">
+      <button id="newBtn" class="button ghost"><span>＋</span> Jauns</button>
+      <button id="importImageBtn" class="button ghost"><span>▧</span> Ielikt attēlu</button>
+      <button id="importBtn" class="button ghost"><span>↥</span> Importēt</button>
+      <button id="exportBtn" class="button primary"><span>⇩</span> Eksportēt JSON</button>
+      <input id="fileInput" type="file" accept=".json,application/json" hidden>
+      <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+    </nav>
+  </header>
+
+  <main class="workspace">
+    <aside class="sidebar left-panel">
+      <section>
+        <div class="section-heading">
+          <div><span class="eyebrow">01</span><h2>Līmeņa iestatījumi</h2></div>
+          <button id="settingsToggle" class="icon-button" aria-label="Sakļaut iestatījumus">⌃</button>
+        </div>
+        <div id="settingsBody" class="settings-grid">
+          <label>Platums <span><input id="gridWidth" type="number" min="4" max="100" value="24"> flīzes</span></label>
+          <label>Augstums <span><input id="gridHeight" type="number" min="4" max="100" value="16"> flīzes</span></label>
+          <button id="resizeBtn" class="button full">Mainīt režģa izmēru</button>
+          <label>Flīzes izmērs <span><input id="tileSize" type="number" min="8" max="256" value="32"> px</span></label>
+          <label>Fona krāsa <span class="color-field"><input id="backgroundColor" type="color" value="#17151f"><code id="backgroundHex">#17151F</code></span></label>
+          <label>Attēla krāsas <span><input id="imageColorCount" type="number" min="4" max="10" value="8"> max.</span></label>
+          <p class="hint image-hint">Ieliec attēlu — tas tiks samazināts līdz režģim un pārvērsts paletē.</p>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-heading">
+          <div><span class="eyebrow">02</span><h2>Rīki</h2></div>
+          <kbd>B</kbd>
+        </div>
+        <div class="tool-grid" role="toolbar" aria-label="Zīmēšanas rīki">
+          <button class="tool active" data-tool="brush"><span>✎</span>Ota<kbd>B</kbd></button>
+          <button class="tool" data-tool="eraser"><span>◇</span>Dzēst<kbd>E</kbd></button>
+          <button class="tool" data-tool="fill"><span>◩</span>Aizpildīt<kbd>F</kbd></button>
+          <button class="tool" data-tool="picker"><span>⌾</span>Paņemt<kbd>I</kbd></button>
+        </div>
+        <div class="history-actions">
+          <button id="undoBtn" class="button ghost" title="Ctrl+Z">↶ Atcelt</button>
+          <button id="redoBtn" class="button ghost" title="Ctrl+Y">↷ Atkārtot</button>
+        </div>
+      </section>
+
+      <section class="palette-section">
+        <div class="section-heading">
+          <div><span class="eyebrow">03</span><h2>Flīžu palete</h2></div>
+          <button id="addTileBtn" class="icon-button add" aria-label="Pievienot flīzi">＋</button>
+        </div>
+        <div id="palette" class="palette"></div>
+        <p class="hint">Dubultklikšķis uz flīzes — rediģēt</p>
+      </section>
+    </aside>
+
+    <section class="stage">
+      <div class="stage-toolbar">
+        <div class="mode-tabs">
+          <button class="active">✦ Redaktors</button>
+          <button id="previewBtn">▷ Priekšskatījums</button>
+        </div>
+        <div class="zoom-tools">
+          <span id="coordinates">X: — &nbsp; Y: —</span>
+          <button id="zoomOut" aria-label="Attālināt">−</button>
+          <output id="zoomValue">100%</output>
+          <button id="zoomIn" aria-label="Pietuvināt">＋</button>
+          <button id="fitBtn">Ietilpināt</button>
+          <label class="grid-switch"><input id="showGrid" type="checkbox" checked><span></span> Režģis</label>
+        </div>
+      </div>
+      <div id="canvasViewport" class="canvas-viewport">
+        <div id="canvasWrap" class="canvas-wrap">
+          <canvas id="levelCanvas" aria-label="Līmeņa zīmēšanas laukums"></canvas>
+        </div>
+      </div>
+      <div class="statusbar">
+        <span><i class="status-dot"></i><b id="statusTool">OTA</b> · Velc, lai zīmētu</span>
+        <span id="mapStats">24 × 16 · 384 flīzes</span>
+      </div>
+    </section>
+
+    <aside class="sidebar right-panel">
+      <section>
+        <div class="section-heading">
+          <div><span class="eyebrow">04</span><h2>Slāņi</h2></div>
+          <button id="addLayerBtn" class="icon-button add" aria-label="Pievienot slāni">＋</button>
+        </div>
+        <div id="layers" class="layers"></div>
+      </section>
+
+      <section>
+        <div class="section-heading">
+          <div><span class="eyebrow">05</span><h2>Līmeņa dati</h2></div>
+        </div>
+        <div class="metadata">
+          <label>Autors<input id="author" placeholder="Tavs vārds"></label>
+          <label>Grūtība
+            <select id="difficulty">
+              <option value="Easy">Viegla (Easy)</option>
+              <option value="Medium" selected>Vidēja (Medium)</option>
+              <option value="Hard">Grūta (Hard)</option>
+              <option value="Brutal">Ekstrēma (Brutal)</option>
+            </select>
+          </label>
+          <div class="metadata-row">
+            <label>Slots<input id="slot" type="number" min="1" max="999" value="19"></label>
+            <label>Jostas limits<input id="beltCap" type="number" min="1" max="999" value="24"></label>
+          </div>
+          <label>Avots
+            <select id="source">
+              <option value="tool" selected>tool</option>
+              <option value="pushed">pushed</option>
+              <option value="builtin">builtin</option>
+            </select>
+          </label>
+          <label>Seed<input id="seed" type="number" min="1" value="19001"></label>
+          <label>Apraksts<textarea id="description" rows="3" placeholder="Īss līmeņa apraksts..."></textarea></label>
+        </div>
+      </section>
+
+      <section class="validation-section">
+        <div class="section-heading">
+          <div><span class="eyebrow">06</span><h2>Pārbaude</h2></div>
+        </div>
+        <div id="validation" class="validation">
+          <div><span class="check">✓</span><p><b>Līmenis gatavs</b><small>JSON var eksportēt</small></p></div>
+        </div>
+        <button id="validateBtn" class="button full">Pārbaudīt līmeni</button>
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="tileDialog">
+    <form method="dialog" id="tileForm">
+      <div class="dialog-heading">
+        <div><span class="eyebrow">FLĪZE</span><h2 id="tileDialogTitle">Pievienot flīzi</h2></div>
+        <button value="cancel" class="icon-button" aria-label="Aizvērt">×</button>
+      </div>
+      <label>Nosaukums<input id="tileName" maxlength="30" required></label>
+      <label>Tips
+        <select id="tileType">
+          <option value="solid">Cieta</option><option value="hazard">Bīstama</option>
+          <option value="spawn">Spēlētājs</option><option value="goal">Mērķis</option>
+          <option value="decoration">Dekorācija</option><option value="custom">Cits</option>
+        </select>
+      </label>
+      <label>Krāsa<input id="tileColor" type="color" value="#8b5cf6"></label>
+      <label>JSON kods<input id="tileCode" maxlength="1" pattern="[A-Za-z0-9]" placeholder="A" required></label>
+      <label>Simbols<input id="tileSymbol" maxlength="2" placeholder="◆"></label>
+      <menu>
+        <button value="cancel" class="button ghost">Atcelt</button>
+        <button id="saveTileBtn" value="default" class="button primary">Saglabāt</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="previewDialog" class="preview-dialog">
+    <div class="dialog-heading">
+      <div><span class="eyebrow">PRIEKŠSKATĪJUMS</span><h2 id="previewTitle">Mans līmenis</h2></div>
+      <button id="closePreview" class="icon-button" aria-label="Aizvērt">×</button>
+    </div>
+    <div class="preview-canvas-wrap"><canvas id="previewCanvas"></canvas></div>
+    <p>Priekšskatījumā slāņi ir apvienoti tādā secībā, kādā tos eksportēs uz JSON.</p>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
