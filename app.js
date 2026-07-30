@@ -13,21 +13,16 @@ const defaultTiles = [
   { id: "spikes", code: "M", name: "Dzintara", type: "hazard", color: "#f5a623", symbol: "▲" }
 ];
 const prismCodes = "KIRGAVMFLBCDEHJNOPQSTUWXYZ0123456789";
+const imageGridSize = 12;
 
 function blankCells(width, height) {
   return Array.from({ length: height }, () => Array(width).fill(null));
 }
 
 function makeInitialState() {
-  const width = 24, height = 16;
-  const ground = blankCells(width, height);
-  for (let y = 11; y < height; y++) {
-    for (let x = 0; x < width; x++) ground[y][x] = y === 11 ? "grass" : "ground";
-  }
-  for (let x = 6; x < 11; x++) ground[8][x] = "stone";
-  for (let x = 15; x < 20; x++) ground[6][x] = "stone";
-  ground[10][2] = "spawn";
-  ground[5][18] = "goal";
+  // all-levels.json pirmais līmenis (First Bloom) ir 12 × 12, tādēļ tas ir
+  // jaunā līmeņa sākuma formāts. Katram līmenim to var mainīt iestatījumos.
+  const width = 12, height = 12;
   return {
     format: "pixel-level-tool",
     version: 1,
@@ -39,14 +34,14 @@ function makeInitialState() {
     source: "tool",
     beltCap: 24,
     seed: 19001,
+    containers: [],
     width,
     height,
     tileSize: 32,
     backgroundColor: "#17151f",
     tiles: clone(defaultTiles),
     layers: [
-      { id: crypto.randomUUID(), name: "Pamata slānis", visible: true, cells: ground },
-      { id: crypto.randomUUID(), name: "Dekorācijas", visible: true, cells: blankCells(width, height) }
+      { id: crypto.randomUUID(), name: "Pamata slānis", visible: true, cells: blankCells(width, height) }
     ]
   };
 }
@@ -71,8 +66,26 @@ const viewport = $("#canvasViewport");
 function loadDraft() {
   try {
     const draft = localStorage.getItem("pixel-level-tool-draft");
-    return draft ? normaliseLevel(JSON.parse(draft)) : null;
+    if (!draft) return null;
+    const parsed = JSON.parse(draft);
+    // Pirms 12 × 12 noklusējuma ieviešanas lietotne automātiski saglabāja
+    // 24 × 16 demonstrācijas līmeni. To atpazīstam pēc precīzās sākuma formas
+    // un migrējam, lai vecais paraugs vairs neizskatītos kā jaunais noklusējums.
+    if (isLegacyStarterDraft(parsed)) {
+      const migrated = makeInitialState();
+      localStorage.setItem("pixel-level-tool-draft", JSON.stringify(migrated));
+      return migrated;
+    }
+    return normaliseLevel(parsed);
   } catch { return null; }
+}
+
+function isLegacyStarterDraft(level) {
+  const defaultIds = defaultTiles.map(tile => tile.id).join(",");
+  return level?.name === "Mans pirmais līmenis" && level.width === 24 && level.height === 16 &&
+    level.layers?.length === 2 && level.layers[0]?.name === "Pamata slānis" &&
+    level.layers[1]?.name === "Dekorācijas" &&
+    level.tiles?.map(tile => tile.id).join(",") === defaultIds;
 }
 
 function normaliseLevel(data) {
@@ -110,10 +123,21 @@ function normaliseLevel(data) {
     source: ["tool", "pushed", "builtin"].includes(data.source) ? data.source : "tool",
     beltCap: Math.max(1, Math.trunc(+data.beltCap || 24)),
     seed: Math.max(1, Math.trunc(+data.seed || 19001)),
+    containers: normaliseContainers(data.containers),
     width, height, tileSize: Math.max(8, Math.min(256, +data.tileSize || 32)),
     backgroundColor: /^#[0-9a-f]{6}$/i.test(data.backgroundColor) ? data.backgroundColor : "#17151f",
     tiles, layers
   };
+}
+
+function normaliseContainers(containers) {
+  if (!Array.isArray(containers)) return [];
+  return containers.map((container) => ({
+    c: String(container?.c || "K").toUpperCase().slice(0, 1),
+    cap: Math.max(1, Math.min(99, Math.trunc(+container?.cap || 1))),
+    r: Math.max(0, Math.trunc(+container?.r || 0)),
+    col: Math.max(0, Math.min(3, Math.trunc(+container?.col || 0)))
+  }));
 }
 
 function normaliseTier(value) {
@@ -149,6 +173,7 @@ function prismLevelToState(level) {
     source: level.source,
     beltCap: level.beltCap,
     seed: level.seed,
+    containers: level.containers,
     width,
     height,
     tileSize: 32,
@@ -291,10 +316,12 @@ function renderCanvas(target = canvas, preview = false) {
       const px = x * size, py = y * size;
       context.fillStyle = tile.color;
       context.fillRect(px, py, size, size);
-      context.fillStyle = shade(tile.color, -20);
-      context.fillRect(px, py + size - Math.max(2, size * .11), size, Math.max(2, size * .11));
-      context.fillStyle = shade(tile.color, 18);
-      context.fillRect(px, py, size, Math.max(1, size * .07));
+      if (!tile.flat) {
+        context.fillStyle = shade(tile.color, -20);
+        context.fillRect(px, py + size - Math.max(2, size * .11), size, Math.max(2, size * .11));
+        context.fillStyle = shade(tile.color, 18);
+        context.fillRect(px, py, size, Math.max(1, size * .07));
+      }
       if (tile.symbol && size >= 16) {
         context.fillStyle = "#fff";
         context.font = `600 ${Math.round(size * .46)}px Manrope`;
@@ -322,11 +349,47 @@ function renderAll() {
   syncForm();
   renderPalette();
   renderLayers();
+  renderContainers();
   renderCanvas();
   $("#canvasWrap").style.transform = `scale(${zoom})`;
   $("#zoomValue").textContent = `${Math.round(zoom * 100)}%`;
   $("#mapStats").textContent = `${state.width} × ${state.height} · ${state.width * state.height} flīzes`;
   updateHistoryButtons();
+}
+
+function renderContainers() {
+  const root = $("#containers");
+  root.replaceChildren();
+  if (!state.containers.length) {
+    root.innerHTML = '<p class="containers-empty">Nav manuālu containers — eksports tos izveidos automātiski.</p>';
+    return;
+  }
+  state.containers.forEach((container, index) => {
+    const row = document.createElement("div");
+    row.className = "container-row";
+    const options = state.tiles.map(tile => `<option value="${tile.code}"${tile.code === container.c ? " selected" : ""}>${tile.code}</option>`).join("");
+    row.innerHTML = `<label>Krāsa<select data-field="c">${options}</select></label>
+      <label>Cap<input data-field="cap" type="number" min="1" max="99" value="${container.cap}"></label>
+      <label>Col / r<input data-field="position" value="${container.col} / ${container.r}" aria-label="Kolonna un rinda"></label>
+      <button class="container-delete" title="Dzēst container" aria-label="Dzēst container">×</button>`;
+    row.querySelector('[data-field="c"]').addEventListener("change", (event) => updateContainer(index, { c: event.target.value }));
+    row.querySelector('[data-field="cap"]').addEventListener("change", (event) => updateContainer(index, { cap: Math.max(1, Math.trunc(+event.target.value || 1)) }));
+    row.querySelector('[data-field="position"]').addEventListener("change", (event) => {
+      const parts = event.target.value.match(/^\s*(\d+)\s*[/,: ]\s*(\d+)\s*$/);
+      if (!parts) { event.target.value = `${container.col} / ${container.r}`; toast("Pozīciju ievadi formātā: kolonna / rinda", true); return; }
+      updateContainer(index, { col: Math.max(0, Math.min(3, +parts[1])), r: Math.max(0, +parts[2]) });
+    });
+    row.querySelector(".container-delete").addEventListener("click", () => {
+      snapshot(); state.containers.splice(index, 1); changed();
+    });
+    root.append(row);
+  });
+}
+
+function updateContainer(index, values) {
+  snapshot();
+  Object.assign(state.containers[index], values);
+  changed();
 }
 
 function shade(hex, amount) {
@@ -470,6 +533,33 @@ $("#addLayerBtn").addEventListener("click", () => {
   activeLayer = state.layers.length - 1; changed();
 });
 
+$("#addContainerBtn").addEventListener("click", () => {
+  const colour = state.tiles.find(tile => tile.id === selectedTile)?.code || state.tiles[0]?.code || "K";
+  const col = state.containers.length % 4;
+  const row = state.containers.filter(container => container.col === col).length;
+  snapshot();
+  state.containers.push({ c: colour, cap: 2, r: row, col });
+  changed();
+});
+
+$("#autoContainersBtn").addEventListener("click", () => {
+  const grid = exportedGrid();
+  const counts = {};
+  grid.forEach(row => [...row].forEach(code => { counts[code] = (counts[code] || 0) + 1; }));
+  snapshot();
+  state.containers = buildContainers(counts);
+  changed();
+  toast("Containers izveidoti no režģa krāsu skaita");
+});
+
+$("#clearContainersBtn").addEventListener("click", () => {
+  if (!state.containers.length) return;
+  snapshot();
+  state.containers = [];
+  changed();
+  toast("Manuālie containers notīrīti — eksportā atkal izmantos automātisko sadali");
+});
+
 function openTileDialog(tile = null) {
   editingTileId = tile?.id || null;
   $("#tileDialogTitle").textContent = tile ? "Rediģēt flīzi" : "Pievienot flīzi";
@@ -547,21 +637,24 @@ $("#imageInput").addEventListener("change", async (event) => {
   }
   try {
     const image = await readImage(file);
-    const result = imageToLevel(image, state.width, state.height, imageColorCount);
+    const result = imageToLevel(image, imageGridSize, imageGridSize, imageColorCount);
     snapshot();
+    state.width = imageGridSize;
+    state.height = imageGridSize;
     state.tiles = result.tiles;
+    state.containers = [];
     state.layers = [{
       id: crypto.randomUUID(),
       name: `Attēls: ${file.name.replace(/\.[^.]+$/, "")}`,
       visible: true,
       cells: result.cells
     }];
-    state.backgroundColor = result.tiles[0].color;
+    state.backgroundColor = result.background;
     activeLayer = 0;
     selectedTile = result.tiles[0].id;
     changed();
     fitCanvas();
-    toast(`Attēls pārvērsts ${state.width} × ${state.height} režģī ar ${result.tiles.length} krāsām`);
+    toast(`Attēls pārvērsts 12 × 12 režģī ar ${result.tiles.length} krāsām`);
   } catch (error) {
     toast(`Neizdevās apstrādāt attēlu: ${error.message}`, true);
   }
@@ -578,86 +671,263 @@ function readImage(file) {
 }
 
 function imageToLevel(image, width, height, maxColours) {
+  const naturalWidth = image.naturalWidth || image.width;
+  const naturalHeight = image.naturalHeight || image.height;
+  const analysisScale = Math.min(1, 640 / Math.max(naturalWidth, naturalHeight));
+  const analysisWidth = Math.max(1, Math.round(naturalWidth * analysisScale));
+  const analysisHeight = Math.max(1, Math.round(naturalHeight * analysisScale));
+  const analysis = document.createElement("canvas");
+  analysis.width = analysisWidth;
+  analysis.height = analysisHeight;
+  const analysisContext = analysis.getContext("2d", { willReadFrequently: true });
+  analysisContext.drawImage(image, 0, 0, analysisWidth, analysisHeight);
+  const analysisPixels = analysisContext.getImageData(0, 0, analysisWidth, analysisHeight).data;
+  const background = imageCornerColour(analysisPixels, analysisWidth, analysisHeight);
+  const foreground = imageForegroundBounds(analysisPixels, analysisWidth, analysisHeight, background);
+  const isolatedSubject = foreground.width * foreground.height < analysisWidth * analysisHeight * 0.82;
+  const analysisCrop = isolatedSubject
+    ? foreground
+    : imageSaliencyCrop(analysisPixels, analysisWidth, analysisHeight);
+  const cropPixels = analysisContext.getImageData(
+    Math.floor(analysisCrop.x),
+    Math.floor(analysisCrop.y),
+    Math.max(1, Math.floor(analysisCrop.width)),
+    Math.max(1, Math.floor(analysisCrop.height))
+  ).data;
+  const palette = adaptiveImagePalette(cropPixels, maxColours);
+
+  const sampleScale = 8;
+  const rasterWidth = width * sampleScale;
+  const rasterHeight = height * sampleScale;
   const source = document.createElement("canvas");
-  source.width = width;
-  source.height = height;
+  source.width = rasterWidth;
+  source.height = rasterHeight;
   const sourceContext = source.getContext("2d", { willReadFrequently: true });
-  sourceContext.fillStyle = "#262b44";
-  sourceContext.fillRect(0, 0, width, height);
-  sourceContext.imageSmoothingEnabled = true;
-  sourceContext.drawImage(image, 0, 0, width, height);
-  const pixels = sourceContext.getImageData(0, 0, width, height).data;
-  const palette = quantizePixels(pixels, maxColours);
+  const crop = {
+    x: analysisCrop.x * naturalWidth / analysisWidth,
+    y: analysisCrop.y * naturalHeight / analysisHeight,
+    width: analysisCrop.width * naturalWidth / analysisWidth,
+    height: analysisCrop.height * naturalHeight / analysisHeight
+  };
+  if (isolatedSubject) {
+    drawImageCropContain(sourceContext, image, crop, rasterWidth, rasterHeight, background);
+  } else {
+    drawImageCropFill(sourceContext, image, crop, rasterWidth, rasterHeight);
+  }
+  const pixels = sourceContext.getImageData(0, 0, rasterWidth, rasterHeight).data;
   const tiles = palette.map((colour, index) => ({
     id: prismCodes[index],
     code: prismCodes[index],
     name: `Attēla krāsa ${prismCodes[index]}`,
     type: "decoration",
     color: rgbToHex(colour),
-    symbol: ""
+    symbol: "",
+    flat: true
   }));
-  const cells = Array.from({ length: height }, (_, y) =>
-    Array.from({ length: width }, (_, x) => {
-      const offset = (y * width + x) * 4;
-      return tiles[nearestColour(pixels[offset], pixels[offset + 1], pixels[offset + 2], palette)].id;
-    })
-  );
-  return { tiles, cells };
+  const cells = rasterToGrid(pixels, rasterWidth, rasterHeight, width, height, palette, tiles);
+  return { tiles, cells, background: rgbToHex(background) };
 }
 
-function quantizePixels(pixels, maxColours) {
+function drawImageCropContain(context, image, crop, width, height, background) {
+  context.fillStyle = rgbToHex(background);
+  context.fillRect(0, 0, width, height);
+  const padding = Math.max(0, Math.round(Math.min(width, height) / 12));
+  const availableWidth = width - padding * 2;
+  const availableHeight = height - padding * 2;
+  const scale = Math.min(availableWidth / crop.width, availableHeight / crop.height);
+  const drawWidth = crop.width * scale;
+  const drawHeight = crop.height * scale;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(
+    image,
+    crop.x, crop.y, crop.width, crop.height,
+    (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight
+  );
+}
+
+function drawImageCropFill(context, image, crop, width, height) {
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, width, height);
+}
+
+function rasterToGrid(pixels, rasterWidth, rasterHeight, gridWidth, gridHeight, palette, tiles) {
+  const blockWidth = rasterWidth / gridWidth;
+  const blockHeight = rasterHeight / gridHeight;
+  return Array.from({ length: gridHeight }, (_, gridY) =>
+    Array.from({ length: gridWidth }, (_, gridX) => {
+      const counts = Array(palette.length).fill(0);
+      const average = { r: 0, g: 0, b: 0, count: 0 };
+      const startX = Math.floor(gridX * blockWidth);
+      const endX = Math.ceil((gridX + 1) * blockWidth);
+      const startY = Math.floor(gridY * blockHeight);
+      const endY = Math.ceil((gridY + 1) * blockHeight);
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const offset = (y * rasterWidth + x) * 4;
+          const r = pixels[offset], g = pixels[offset + 1], b = pixels[offset + 2];
+          counts[nearestColour(r, g, b, palette)]++;
+          average.r += r;
+          average.g += g;
+          average.b += b;
+          average.count++;
+        }
+      }
+      const dominant = counts.indexOf(Math.max(...counts));
+      const dominantShare = counts[dominant] / average.count;
+      const selected = dominantShare >= 0.52
+        ? dominant
+        : nearestColour(average.r / average.count, average.g / average.count, average.b / average.count, palette);
+      return tiles[selected].id;
+    })
+  );
+}
+
+function imageCornerColour(pixels, width, height) {
+  const points = [
+    [0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]
+  ];
+  const sum = { r: 0, g: 0, b: 0 };
+  points.forEach(([x, y]) => {
+    const offset = (y * width + x) * 4;
+    sum.r += pixels[offset];
+    sum.g += pixels[offset + 1];
+    sum.b += pixels[offset + 2];
+  });
+  return { r: Math.round(sum.r / points.length), g: Math.round(sum.g / points.length), b: Math.round(sum.b / points.length) };
+}
+
+function imageForegroundBounds(pixels, width, height, background) {
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  const threshold = 42 ** 2;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 4;
+      const colour = { r: pixels[offset], g: pixels[offset + 1], b: pixels[offset + 2] };
+      if (colourDistance(colour, background) <= threshold) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  if (maxX < minX || maxY < minY) return { x: 0, y: 0, width, height };
+
+  const subjectWidth = maxX - minX + 1;
+  const subjectHeight = maxY - minY + 1;
+  const margin = Math.max(1, Math.round(Math.max(subjectWidth, subjectHeight) * 0.025));
+  const x = Math.max(0, minX - margin);
+  const y = Math.max(0, minY - margin);
+  const right = Math.min(width, maxX + margin + 1);
+  const bottom = Math.min(height, maxY + margin + 1);
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+function imageSaliencyCrop(pixels, width, height) {
+  const size = Math.min(width, height);
+  if (width === height) return { x: 0, y: 0, width, height };
+
+  const vertical = width > height;
+  const positions = vertical ? width : height;
+  const saliency = Array(positions).fill(0);
+  const step = Math.max(1, Math.floor(Math.min(width, height) / 180));
+  for (let y = 0; y < height - step; y += step) {
+    for (let x = 0; x < width - step; x += step) {
+      const offset = (y * width + x) * 4;
+      const right = (y * width + x + step) * 4;
+      const below = ((y + step) * width + x) * 4;
+      const colour = { r: pixels[offset], g: pixels[offset + 1], b: pixels[offset + 2] };
+      const edge = Math.sqrt(colourDistance(colour, {
+        r: pixels[right], g: pixels[right + 1], b: pixels[right + 2]
+      })) + Math.sqrt(colourDistance(colour, {
+        r: pixels[below], g: pixels[below + 1], b: pixels[below + 2]
+      }));
+      const maximum = Math.max(colour.r, colour.g, colour.b);
+      const minimum = Math.min(colour.r, colour.g, colour.b);
+      const saturation = maximum ? (maximum - minimum) / maximum : 0;
+      saliency[vertical ? x : y] += edge + saturation * 30;
+    }
+  }
+
+  const limit = positions - size;
+  let bestStart = 0;
+  let bestScore = -Infinity;
+  for (let start = 0; start <= limit; start++) {
+    let score = 0;
+    for (let index = start; index < start + size; index++) score += saliency[index];
+    const centreDistance = Math.abs(start + size / 2 - positions / 2) / Math.max(1, limit / 2);
+    score *= 1.12 - Math.min(1, centreDistance) * 0.12;
+    if (score > bestScore) { bestScore = score; bestStart = start; }
+  }
+  return vertical
+    ? { x: bestStart, y: 0, width: size, height: size }
+    : { x: 0, y: bestStart, width: size, height: size };
+}
+
+function adaptiveImagePalette(pixels, maxColours) {
   const bins = new Map();
   for (let index = 0; index < pixels.length; index += 4) {
-    const alpha = pixels[index + 3] / 255;
-    const r = Math.round((pixels[index] * alpha + 38 * (1 - alpha)) / 8) * 8;
-    const g = Math.round((pixels[index + 1] * alpha + 43 * (1 - alpha)) / 8) * 8;
-    const b = Math.round((pixels[index + 2] * alpha + 68 * (1 - alpha)) / 8) * 8;
-    const key = `${Math.min(255, r)},${Math.min(255, g)},${Math.min(255, b)}`;
-    const entry = bins.get(key) || { r: Math.min(255, r), g: Math.min(255, g), b: Math.min(255, b), count: 0 };
+    const r = pixels[index], g = pixels[index + 1], b = pixels[index + 2];
+    const key = `${r >> 4},${g >> 4},${b >> 4}`;
+    const entry = bins.get(key) || { r: 0, g: 0, b: 0, count: 0 };
+    entry.r += r;
+    entry.g += g;
+    entry.b += b;
     entry.count++;
     bins.set(key, entry);
   }
-  let boxes = [[...bins.values()]];
-  while (boxes.length < maxColours) {
+
+  const colours = [...bins.values()].map(entry => ({
+    r: entry.r / entry.count,
+    g: entry.g / entry.count,
+    b: entry.b / entry.count,
+    count: entry.count
+  })).sort((a, b) => b.count - a.count);
+  const clusters = [];
+  const mergeDistance = 58 ** 2;
+  colours.forEach(colour => {
     let target = -1;
-    let bestScore = -1;
-    boxes.forEach((box, index) => {
-      if (box.length < 2) return;
-      const score = colourBoxScore(box);
-      if (score > bestScore) { bestScore = score; target = index; }
+    let distance = Infinity;
+    clusters.forEach((cluster, index) => {
+      const candidate = colourDistance(colour, cluster);
+      if (candidate < distance) { distance = candidate; target = index; }
     });
-    if (target < 0) break;
-    const box = boxes[target];
-    const channel = widestChannel(box);
-    box.sort((a, b) => a[channel] - b[channel]);
-    const half = box.reduce((total, colour) => total + colour.count, 0) / 2;
-    let total = 0, split = 1;
-    for (; split < box.length; split++) {
-      total += box[split - 1].count;
-      if (total >= half) break;
+    if (target >= 0 && distance <= mergeDistance) {
+      const cluster = clusters[target];
+      const total = cluster.count + colour.count;
+      cluster.r = (cluster.r * cluster.count + colour.r * colour.count) / total;
+      cluster.g = (cluster.g * cluster.count + colour.g * colour.count) / total;
+      cluster.b = (cluster.b * cluster.count + colour.b * colour.count) / total;
+      cluster.count = total;
+    } else {
+      clusters.push({ ...colour });
     }
-    boxes.splice(target, 1, box.slice(0, split), box.slice(split));
+  });
+  clusters.sort((a, b) => b.count - a.count);
+  const totalPixels = pixels.length / 4;
+  const twoColourCoverage = ((clusters[0]?.count || 0) + (clusters[1]?.count || 0)) / totalPixels;
+  const paletteSize = twoColourCoverage >= 0.92 ? Math.min(2, clusters.length) : Math.min(maxColours, clusters.length);
+  return clusters.slice(0, Math.max(1, paletteSize)).map(cluster => nearestSourceColour(cluster, pixels));
+}
+
+function colourDistance(a, b) {
+  return (a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2;
+}
+
+function nearestSourceColour(target, pixels) {
+  let result = { r: pixels[0], g: pixels[1], b: pixels[2] };
+  let bestDistance = Infinity;
+  for (let index = 0; index < pixels.length; index += 4) {
+    const candidate = { r: pixels[index], g: pixels[index + 1], b: pixels[index + 2] };
+    const distance = colourDistance(target, candidate);
+    if (distance < bestDistance) {
+      result = candidate;
+      bestDistance = distance;
+      if (!distance) break;
+    }
   }
-  return boxes.map(averageColour).sort((a, b) => b.count - a.count);
-}
-
-function colourBoxScore(box) {
-  const ranges = ["r", "g", "b"].map(channel => Math.max(...box.map(c => c[channel])) - Math.min(...box.map(c => c[channel])));
-  return Math.max(...ranges) * box.reduce((total, colour) => total + colour.count, 0);
-}
-
-function widestChannel(box) {
-  return ["r", "g", "b"].reduce((best, channel) =>
-    Math.max(...box.map(c => c[channel])) - Math.min(...box.map(c => c[channel])) >
-    Math.max(...box.map(c => c[best])) - Math.min(...box.map(c => c[best])) ? channel : best, "r");
-}
-
-function averageColour(box) {
-  const total = box.reduce((sum, colour) => sum + colour.count, 0);
-  return ["r", "g", "b"].reduce((average, channel) => {
-    average[channel] = Math.round(box.reduce((sum, colour) => sum + colour[channel] * colour.count, 0) / total);
-    return average;
-  }, { count: total });
+  return result;
 }
 
 function nearestColour(r, g, b, palette) {
@@ -692,18 +962,10 @@ function buildPrismCollection() {
   state.tiles.forEach(tile => { palette[tile.code] = tile.color.toUpperCase(); });
   if (!palette.K) palette.K = state.backgroundColor.toUpperCase();
 
-  const grid = Array.from({ length: state.height }, (_, y) =>
-    Array.from({ length: state.width }, (_, x) => {
-      let tileId = null;
-      state.layers.forEach(layer => {
-        if (layer.visible && layer.cells[y][x]) tileId = layer.cells[y][x];
-      });
-      return state.tiles.find(tile => tile.id === tileId)?.code || "K";
-    }).join("")
-  );
+  const grid = exportedGrid();
   const counts = {};
   grid.forEach(row => [...row].forEach(code => { counts[code] = (counts[code] || 0) + 1; }));
-  const containers = buildContainers(counts);
+  const containers = state.containers.length ? sortContainers(state.containers) : buildContainers(counts);
   const level = {
     slot: state.slot,
     name: state.name.trim() || "Untitled",
@@ -727,6 +989,22 @@ function buildPrismCollection() {
     count: 1,
     levels: [level]
   };
+}
+
+function exportedGrid() {
+  return Array.from({ length: state.height }, (_, y) =>
+    Array.from({ length: state.width }, (_, x) => {
+      let tileId = null;
+      state.layers.forEach(layer => {
+        if (layer.visible && layer.cells[y][x]) tileId = layer.cells[y][x];
+      });
+      return state.tiles.find(tile => tile.id === tileId)?.code || "K";
+    }).join("")
+  );
+}
+
+function sortContainers(containers) {
+  return containers.map(container => ({ ...container })).sort((a, b) => a.col - b.col || a.r - b.r);
 }
 
 function buildContainers(counts) {
@@ -769,15 +1047,30 @@ function validate() {
   const used = new Set(state.layers.flatMap(layer => layer.cells.flat()).filter(Boolean));
   if (!state.name.trim()) errors.push("Līmenim nav nosaukuma.");
   if (!used.size) errors.push("Līmenis ir tukšs.");
-  const spawnCount = state.layers.reduce((n, layer) => n + layer.cells.flat().filter(id => state.tiles.find(t => t.id === id)?.type === "spawn").length, 0);
-  const goalCount = state.layers.reduce((n, layer) => n + layer.cells.flat().filter(id => state.tiles.find(t => t.id === id)?.type === "goal").length, 0);
-  if (!spawnCount) warnings.push("Nav ievietota spēlētāja starta flīze.");
-  if (!goalCount) warnings.push("Nav ievietota mērķa flīze.");
-  if (spawnCount > 1) warnings.push(`Atrastas ${spawnCount} starta flīzes.`);
+  // Prism Pop! līmeņa formātā nav atsevišķu spawn/goal lauku — to nevar
+  // droši interpretēt no krāsas, tādēļ šeit pārbaudām tikai eksporta prasības.
   const codes = state.tiles.map(tile => tile.code);
   if (new Set(codes).size !== codes.length) errors.push("Flīžu JSON kodi nav unikāli.");
   if (codes.some(code => !/^[A-Z0-9]$/.test(code))) errors.push("Flīžu kodiem jābūt vienam lielajam burtam vai ciparam.");
-  if (state.tiles.length < 4 || state.tiles.length > 10) warnings.push("Prism Pop! paletē ieteicamas 4–10 krāsas.");
+  if (state.tiles.length > 10 || (state.tiles.length < 4 && !state.tiles.every(tile => tile.flat))) {
+    warnings.push("Prism Pop! paletē ieteicamas 4–10 krāsas.");
+  }
+  if (state.containers.length) {
+    const positions = new Set();
+    state.containers.forEach(container => {
+      if (!codes.includes(container.c)) errors.push(`Container izmanto nezināmu krāsu: ${container.c}.`);
+      if (container.cap > state.beltCap) errors.push(`Container ${container.c} ietilpība (${container.cap}) pārsniedz beltCap (${state.beltCap}).`);
+      const position = `${container.col}/${container.r}`;
+      if (positions.has(position)) errors.push(`Divi containers atrodas pozīcijā ${position}.`);
+      positions.add(position);
+    });
+    const gridCounts = {};
+    const containerCounts = {};
+    exportedGrid().forEach(row => [...row].forEach(code => { gridCounts[code] = (gridCounts[code] || 0) + 1; }));
+    state.containers.forEach(container => { containerCounts[container.c] = (containerCounts[container.c] || 0) + container.cap; });
+    const mismatches = new Set([...Object.keys(gridCounts), ...Object.keys(containerCounts)]).filter(code => (gridCounts[code] || 0) !== (containerCounts[code] || 0));
+    if (mismatches.length) warnings.push(`Container ietilpība nesakrīt ar režģi krāsām: ${mismatches.join(", ")}.`);
+  }
   renderValidation(errors, warnings);
   return { errors, warnings };
 }

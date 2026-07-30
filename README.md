@@ -15,10 +15,11 @@ Atver `http://localhost:8974`. Windows vidē var arī palaist `start-editor.bat`
 ## Iespējas
 
 - zīmēšana ar otu, dzēšgumiju, laukuma aizpildīšanu un krāsas/flīzes paņemšanu;
-- PNG, JPG, WebP vai GIF attēla imports ar automātisku samazināšanu, krāsu atlasi un režģa aizpildīšanu;
+- PNG, JPG, WebP vai GIF attēla imports uz 12 × 12 režģi ar automātisku objekta/svarīgākā apgabala atrašanu, adaptīvu krāsu atlasi un vairāku avota pikseļu analīzi katrai flīzei;
 - maināms režģa un flīžu izmērs;
 - rediģējama flīžu palete ar tipu, krāsu un simbolu;
 - vairāki paslēpjami, pārsaucami un dzēšami slāņi;
+- manuāli veidojami Prism Pop! `containers` ar krāsu, ietilpību, kolonnu un rindu;
 - undo/redo un automātisks lokālais melnraksts pārlūkā;
 - līmeņa validācija, priekšskatījums, JSON imports un eksports;
 - peles, skārienekrāna un tastatūras saīsņu atbalsts.

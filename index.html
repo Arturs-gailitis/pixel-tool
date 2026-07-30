@@ -36,8 +36,8 @@
           <button id="settingsToggle" class="icon-button" aria-label="Sakļaut iestatījumus">⌃</button>
         </div>
         <div id="settingsBody" class="settings-grid">
-          <label>Platums <span><input id="gridWidth" type="number" min="4" max="100" value="24"> flīzes</span></label>
-          <label>Augstums <span><input id="gridHeight" type="number" min="4" max="100" value="16"> flīzes</span></label>
+          <label>Platums <span><input id="gridWidth" type="number" min="4" max="100" value="12"> flīzes</span></label>
+          <label>Augstums <span><input id="gridHeight" type="number" min="4" max="100" value="12"> flīzes</span></label>
           <button id="resizeBtn" class="button full">Mainīt režģa izmēru</button>
           <label>Flīzes izmērs <span><input id="tileSize" type="number" min="8" max="256" value="32"> px</span></label>
           <label>Fona krāsa <span class="color-field"><input id="backgroundColor" type="color" value="#17151f"><code id="backgroundHex">#17151F</code></span></label>
@@ -95,7 +95,7 @@
       </div>
       <div class="statusbar">
         <span><i class="status-dot"></i><b id="statusTool">OTA</b> · Velc, lai zīmētu</span>
-        <span id="mapStats">24 × 16 · 384 flīzes</span>
+        <span id="mapStats">12 × 12 · 144 flīzes</span>
       </div>
     </section>
 
@@ -138,9 +138,22 @@
         </div>
       </section>
 
+      <section class="containers-section">
+        <div class="section-heading">
+          <div><span class="eyebrow">06</span><h2>Containers</h2></div>
+          <button id="addContainerBtn" class="icon-button add" aria-label="Pievienot container">＋</button>
+        </div>
+        <div id="containers" class="containers-list"></div>
+        <div class="container-actions">
+          <button id="autoContainersBtn" class="button ghost">Auto-izveidot</button>
+          <button id="clearContainersBtn" class="button ghost">Notīrīt</button>
+        </div>
+        <p class="hint">Manuāli pievienotie containers tiks eksportēti tieši tādā secībā.</p>
+      </section>
+
       <section class="validation-section">
         <div class="section-heading">
-          <div><span class="eyebrow">06</span><h2>Pārbaude</h2></div>
+          <div><span class="eyebrow">07</span><h2>Pārbaude</h2></div>
         </div>
         <div id="validation" class="validation">
           <div><span class="check">✓</span><p><b>Līmenis gatavs</b><small>JSON var eksportēt</small></p></div>

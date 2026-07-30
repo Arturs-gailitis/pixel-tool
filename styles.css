@@ -111,6 +111,14 @@ canvas { image-rendering: pixelated; }
 .layer button { border: 0; background: transparent; color: var(--muted); padding: 0; }
 .layer-name { font-weight: 700; font-size: 11px; }
 .layer-name small { display: block; font-weight: 400; color: var(--muted); font-size: 8px; }
+.containers-list { display: grid; gap: 5px; max-height: 215px; overflow-y: auto; }
+.container-row { display: grid; grid-template-columns: 36px 1fr 1fr 26px; gap: 5px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: #211e2b; }
+.container-row select, .container-row input { min-width: 0; width: 100%; border: 1px solid var(--line); background: #15131b; border-radius: 3px; padding: 5px; font: 10px DM Mono, monospace; }
+.container-row label { display: grid; gap: 1px; color: var(--muted); font: 7px DM Mono, monospace; text-transform: uppercase; }
+.container-delete { border: 0; background: transparent; color: #d67a69; font-size: 16px; padding: 0; }
+.container-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.container-actions .button { padding: 7px 4px; font-size: 9px; }
+.containers-empty { color: var(--muted); font: 10px DM Mono, monospace; text-align: center; border: 1px dashed var(--line); border-radius: 4px; padding: 12px 5px; }
 .metadata { display: grid; gap: 12px; }
 .metadata-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .metadata label, dialog form > label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
