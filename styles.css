@@ -61,7 +61,7 @@ kbd { color: var(--muted); background: #2b2735; border: 1px solid #3f394b; borde
 .settings-grid > label { color: var(--muted); font-size: 11px; display: flex; justify-content: space-between; align-items: center; }
 .settings-grid label span { display: flex; gap: 5px; align-items: center; color: var(--muted); }
 input[type="number"] { width: 55px; }
-.settings-grid input, .metadata input, .metadata select, .metadata textarea, dialog input, dialog select {
+.settings-grid input, .metadata input, .metadata select, .metadata textarea, dialog input, dialog select, dialog textarea {
   border: 1px solid var(--line); background: #15131b; border-radius: 4px; padding: 7px 8px; outline: none;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--accent) !important; }
@@ -191,6 +191,19 @@ dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 5px 0
 .preview-dialog { max-width: 90vw; max-height: 90vh; }
 .preview-canvas-wrap { overflow: auto; max-width: 80vw; max-height: 65vh; background: #0e0d13; border: 1px solid var(--line); }
 .preview-dialog p { color: var(--muted); font-size: 10px; margin-bottom: 0; }
+.prompt-image-dialog { width: min(520px, calc(100vw - 34px)); padding: 22px; }
+.prompt-image-dialog .dialog-heading { margin-bottom: 17px; }
+.prompt-image-label { display: grid; gap: 7px; color: var(--muted); font-size: 10px; }
+.prompt-image-label textarea { width: 100%; min-height: 135px; resize: vertical; line-height: 1.5; }
+.cloudflare-settings { display: grid; gap: 9px; margin: 14px 0; border: 1px solid var(--line); border-radius: 5px; padding: 10px; }
+.cloudflare-settings summary { cursor: pointer; color: var(--text); font: 700 10px Manrope, system-ui, sans-serif; }
+.cloudflare-settings label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
+.cloudflare-settings input { width: 100%; }
+.cloudflare-settings p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.prompt-image-status { min-height: 20px; margin: -7px 0 18px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.prompt-image-status.is-error { color: #ed8a7e; }
+.prompt-image-status.is-loading { color: var(--green); }
+.prompt-image-status code { color: var(--text); font: 10px DM Mono, monospace; }
 .image-options-dialog { width: min(390px, calc(100vw - 34px)); max-height: 92vh; overflow-y: auto; padding: 22px; }
 .image-options-dialog .dialog-heading { margin-bottom: 7px; }
 .image-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 10px DM Mono, monospace; margin: 0 0 23px; }

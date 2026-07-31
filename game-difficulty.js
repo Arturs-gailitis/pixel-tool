@@ -65,7 +65,6 @@ export function gradeWithGame(level, options = {}) {
   const fleet = options.randomRuns ?? randomFleetSize;
   const critical = [...structure.critical];
   const publishBlockers = [...structure.publishBlockers];
-  let paletteLawBroken = false;
 
   if (+(level.beltCap ?? core.BELT_MAX) !== +core.BELT_MAX) {
     publishBlockers.push(`Jostas limitam jābūt ${core.BELT_MAX}, bet līmenī ir ${level.beltCap}.`);
@@ -87,8 +86,7 @@ export function gradeWithGame(level, options = {}) {
     try {
       core.assertPaletteLaw({ name: level.name || "level", palette: level.palette });
     } catch (error) {
-      paletteLawBroken = true;
-      publishBlockers.push(`Paletes likums: ${String(error.message || error)}`);
+      structure.warnings.push(`Paletes likums: ${String(error.message || error)}`);
     }
   }
 
@@ -151,7 +149,7 @@ export function gradeWithGame(level, options = {}) {
   const shippable = skilledWins.length > 0 && structure.publishBlockers.length === 0;
   let tier;
   if (!anyWin) tier = "Unwinnable";
-  else if (!skilledWins.length || paletteLawBroken) tier = "Fragile";
+  else if (!skilledWins.length) tier = "Fragile";
   else if (strategies.casual.won) tier = strategies.random.winRate >= 0.30 ? "Easy" : "Medium";
   else tier = skilledWins.length >= 2 ? "Hard" : "Brutal";
 

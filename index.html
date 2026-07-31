@@ -22,6 +22,7 @@
       <button id="newBtn" class="button ghost"><span>＋</span> Jauns</button>
       <button id="addLevelBtn" class="button ghost" title="Pievienot līmeni pašreizējam JSON failam"><span>＋</span> Pievienot līmeni</button>
       <button id="importImageBtn" class="button ghost"><span>▧</span> Ielikt attēlu</button>
+      <button id="generateImageBtn" class="button ghost"><span>✦</span> No promta</button>
       <button id="importBtn" class="button ghost"><span>↥</span> Importēt</button>
       <button id="exportBtn" type="button" class="button primary"><span>⇩</span> Eksportēt JSON</button>
       <input id="fileInput" type="file" accept=".json,application/json" hidden>
@@ -248,6 +249,32 @@
         <button id="saveTileBtn" value="default" class="button primary">Saglabāt</button>
       </menu>
     </form>
+  </dialog>
+
+  <dialog id="promptImageDialog" class="prompt-image-dialog">
+    <div class="dialog-heading">
+      <div><span class="eyebrow">PROMTA ATTĒLS</span><h2>Izveido līmeni no apraksta</h2></div>
+      <button id="closePromptImage" class="icon-button" aria-label="Aizvērt">×</button>
+    </div>
+    <label class="prompt-image-label" for="imagePrompt">Apraksti vēlamo attēlu
+      <textarea id="imagePrompt" rows="6" maxlength="2000" placeholder="Piemēram: sarkana lapsa tumšā mežā, vienkāršas formas, oranžs mēness fonā"></textarea>
+    </label>
+    <details class="cloudflare-settings">
+      <summary>Cloudflare Workers AI iestatījumi</summary>
+      <label>Account ID
+        <input id="cloudflareAccountId" type="text" autocomplete="off" spellcheck="false" placeholder="Cloudflare Account ID">
+      </label>
+      <label>API token
+        <input id="cloudflareApiToken" type="password" autocomplete="off" spellcheck="false" placeholder="Workers AI API token">
+      </label>
+      <p>Token netiek saglabāts projektā vai pārlūka atmiņā pēc dialoga aizvēršanas.</p>
+    </details>
+    <p class="dialog-help">Attēls tiks pielāgots skaidram 12 × 12 līmeņa režģim. Pēc ģenerēšanas varēsi izvēlēties krāsu skaitu un importa režīmu.</p>
+    <p id="promptImageStatus" class="prompt-image-status" role="status">Ievadi Cloudflare Account ID un Workers AI API tokenu iestatījumos.</p>
+    <div class="dialog-actions">
+      <button id="cancelPromptImage" class="button ghost">Atcelt</button>
+      <button id="confirmPromptImage" class="button primary">Ģenerēt attēlu</button>
+    </div>
   </dialog>
 
   <dialog id="imageOptionsDialog" class="image-options-dialog">

@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { gradeWithGame } from "./game-difficulty.js";
+import { generateLevelImage } from "./image-generation.js";
 
 const port = Number(process.env.PORT || 8974);
 const root = process.cwd();
@@ -26,6 +27,15 @@ createServer(async (request, response) => {
       sendJson(response, 200, report);
       return;
     }
+    if (pathname === "/api/generate-image" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const image = await generateLevelImage(body.prompt, {
+        accountId: body.accountId,
+        apiToken: body.apiToken
+      });
+      sendJson(response, 200, image);
+      return;
+    }
     const requested = pathname === "/" ? "index.html" : pathname.slice(1);
     const filepath = normalize(join(root, requested));
 
@@ -44,7 +54,10 @@ createServer(async (request, response) => {
     response.end(body);
   } catch (error) {
     if (pathname.startsWith("/api/")) {
-      sendJson(response, 500, { error: String(error.message || error) });
+      const status = Number.isInteger(error.status) && error.status >= 400 && error.status <= 599
+        ? error.status
+        : 500;
+      sendJson(response, status, { error: String(error.message || error) });
       return;
     }
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });

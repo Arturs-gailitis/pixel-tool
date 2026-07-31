@@ -12,9 +12,24 @@ npm start
 
 Atver `http://localhost:8974`. Windows vidē var arī palaist `start-editor.bat`.
 
+### Attēla ģenerēšana no promta
+
+Poga **No promta** izveido attēlu ar Cloudflare Workers AI un pēc tam atver to tajā pašā
+12 × 12 importa priekšskatījumā kā augšupielādētu attēlu. Promta dialogā ievadi Cloudflare
+Account ID un Workers AI API tokenu; token netiek saglabāts JSON failos vai `localStorage`, un
+tiek iztīrīts, aizverot dialogu. Šo režīmu izmanto tikai lokāli vai uzticamā HTTPS vidē, jo tokens
+tiek nosūtīts lokālajam Node.js serverim attēla ģenerēšanas pieprasījumā.
+
+Pēc noklusējuma tiek izmantots `@cf/black-forest-labs/flux-1-schnell`. Cloudflare API tokenam
+jābūt ar `Workers AI Read` vai `Workers AI Edit` tiesībām. Ja vajadzīgs cits saderīgs attēlu modelis,
+to var norādīt ar `CLOUDFLARE_IMAGE_MODEL` vides mainīgo. Atslēgu neievieto `app.js`, JSON failos
+vai Git repozitorijā. Kamēr atslēga nav pievienota, pārējās redaktora iespējas darbojas,
+bet promta dialogs parāda konfigurācijas kļūdu.
+
 ## Iespējas
 
 - zīmēšana ar otu, dzēšgumiju, laukuma aizpildīšanu un krāsas/flīzes paņemšanu;
+- līmeņa attēla ģenerēšana no brīva teksta promta un automātiska nodošana esošajam attēla importam;
 - PNG, JPG, WebP vai GIF attēla imports uz 12 × 12 režģi ar objekta/svarīgākā apgabala atrašanu, adaptīvu krāsu atlasi un pārklājuma analīzi, kas saglabā silueta līknes un plānās detaļas;
 - maināms režģa un flīžu izmērs;
 - rediģējama flīžu palete ar tipu, krāsu un simbolu;
@@ -49,7 +64,7 @@ netiek minēta ar rezerves formulu. Kategoriju kāpnes atbilst etalona README:
 - `Medium`: casual uzvar, bet random fleet īpatsvars ir zem 0.30;
 - `Hard`: casual zaudē un uzvar vismaz divas prasmīgās politikas;
 - `Brutal`: casual zaudē un uzvar tikai viena prasmīgā politika;
-- `Fragile`: uzvara gadās, bet neuzvar neviena prasmīgā politika, vai spēles paletes likums liedz publicēšanu;
+- `Fragile`: uzvara gadās, bet neuzvar neviena prasmīgā politika;
 - `Unwinnable`: neuzvar neviena politika un neviens random fleet spēlētājs;
 - `Broken`: līmeņa dati vai HP/ietilpības paritāte ir nederīga.
 

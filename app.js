@@ -71,6 +71,7 @@ let pendingImageFile = null;
 let pendingImage = null;
 let pendingImageResult = null;
 let previewTimer = null;
+let promptImageGenerating = false;
 const difficultyCache = new Map();
 const difficultyRequests = new Map();
 let difficultyTimer = null;
@@ -1159,6 +1160,28 @@ $("#imageInput").addEventListener("change", async (event) => {
   const [file] = event.target.files;
   event.target.value = "";
   if (!file) return;
+  await openImageImport(file);
+});
+
+$("#generateImageBtn").addEventListener("click", () => {
+  setPromptImageStatus("Ievadi Cloudflare Account ID un Workers AI API tokenu iestatījumos.");
+  $("#promptImageDialog").showModal();
+  $("#imagePrompt").focus();
+});
+$("#closePromptImage").addEventListener("click", closePromptImageDialog);
+$("#cancelPromptImage").addEventListener("click", closePromptImageDialog);
+$("#promptImageDialog").addEventListener("cancel", (event) => {
+  if (promptImageGenerating) event.preventDefault();
+});
+$("#promptImageDialog").addEventListener("close", () => {
+  $("#cloudflareApiToken").value = "";
+});
+$("#confirmPromptImage").addEventListener("click", generatePromptImage);
+$("#imagePrompt").addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") generatePromptImage();
+});
+
+async function openImageImport(file) {
   if (!file.type.startsWith("image/")) {
     toast("Izvēlies PNG, JPG, WebP vai GIF attēlu", true);
     return;
@@ -1181,7 +1204,77 @@ $("#imageInput").addEventListener("change", async (event) => {
     pendingImage = null;
     toast(`Neizdevās nolasīt attēlu: ${error.message}`, true);
   }
-});
+}
+
+async function generatePromptImage() {
+  if (promptImageGenerating) return;
+  const prompt = $("#imagePrompt").value.trim();
+  const accountId = $("#cloudflareAccountId").value.trim();
+  const apiToken = $("#cloudflareApiToken").value.trim();
+  if (!prompt) {
+    setPromptImageStatus("Ievadi attēla aprakstu.", "error");
+    $("#imagePrompt").focus();
+    return;
+  }
+  if (!accountId || !apiToken) {
+    setPromptImageStatus("Ievadi gan Cloudflare Account ID, gan Workers AI API tokenu.", "error");
+    (!accountId ? $("#cloudflareAccountId") : $("#cloudflareApiToken")).focus();
+    return;
+  }
+
+  setPromptImageBusy(true);
+  setPromptImageStatus("Attēls tiek ģenerēts… Tas var aizņemt aptuveni minūti.", "loading");
+  try {
+    const response = await fetch("/api/generate-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, accountId, apiToken })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `Attēla ģenerēšana neizdevās (${response.status}).`);
+    if (!payload.dataBase64) throw new Error("Servera atbildē nav attēla datu.");
+
+    const file = base64ImageFile(
+      payload.dataBase64,
+      payload.mimeType || "image/png",
+      `promta-limenis-${Date.now()}.jpg`
+    );
+    $("#promptImageDialog").close();
+    await openImageImport(file);
+  } catch (error) {
+    setPromptImageStatus(error.message, "error");
+    toast(`Neizdevās ģenerēt attēlu: ${error.message}`, true);
+  } finally {
+    setPromptImageBusy(false);
+  }
+}
+
+function closePromptImageDialog() {
+  if (!promptImageGenerating) $("#promptImageDialog").close();
+}
+
+function setPromptImageBusy(busy) {
+  promptImageGenerating = busy;
+  $("#confirmPromptImage").disabled = busy;
+  $("#cancelPromptImage").disabled = busy;
+  $("#closePromptImage").disabled = busy;
+  $("#imagePrompt").disabled = busy;
+  $("#cloudflareAccountId").disabled = busy;
+  $("#cloudflareApiToken").disabled = busy;
+}
+
+function setPromptImageStatus(message, type = "") {
+  const status = $("#promptImageStatus");
+  status.textContent = message;
+  status.className = `prompt-image-status${type ? ` is-${type}` : ""}`;
+}
+
+function base64ImageFile(dataBase64, mimeType, fileName) {
+  const binary = atob(dataBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return new File([bytes], fileName, { type: mimeType });
+}
 
 $("#imageColorRange").addEventListener("input", (event) => {
   imageColorCount = Math.max(2, Math.min(10, Math.trunc(+event.target.value || 8)));
