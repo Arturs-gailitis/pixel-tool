@@ -35,6 +35,7 @@ function makeInitialState() {
     beltCap: 24,
     seed: 19001,
     containers: [],
+    links: [],
     mystery: null,
     thick: null,
     regions: null,
@@ -70,6 +71,9 @@ let pendingImageFile = null;
 let pendingImage = null;
 let pendingImageResult = null;
 let previewTimer = null;
+const difficultyCache = new Map();
+const difficultyRequests = new Map();
+let difficultyTimer = null;
 
 const canvas = $("#levelCanvas");
 const ctx = canvas.getContext("2d");
@@ -144,6 +148,7 @@ function normaliseLevel(data) {
     beltCap: Math.max(1, Math.trunc(+data.beltCap || 24)),
     seed: Math.max(1, Math.trunc(+data.seed || 19001)),
     containers: normaliseContainers(data.containers),
+    links: normaliseLinks(data.links),
     mystery: normaliseMystery(data.mystery),
     thick: normaliseThick(data.thick),
     regions: normaliseRegions(data.regions),
@@ -161,6 +166,16 @@ function normaliseContainers(containers) {
     cap: Math.max(1, Math.min(99, Math.trunc(+container?.cap || 1))),
     r: Math.max(0, Math.trunc(+container?.r || 0)),
     col: Math.max(0, Math.min(3, Math.trunc(+container?.col || 0)))
+  }));
+}
+
+function normaliseLinks(links) {
+  if (!Array.isArray(links)) return [];
+  return links.map((link, index) => ({
+    id: String(link?.id || `L${index + 1}`).slice(0, 48),
+    members: Array.isArray(link?.members)
+      ? [...new Set(link.members.map(Number).filter(Number.isInteger))]
+      : []
   }));
 }
 
@@ -201,16 +216,19 @@ function normaliseRegions(regions) {
 }
 
 function normaliseShutters(shutters) {
-  if (!shutters || typeof shutters !== "object" || Array.isArray(shutters)) return null;
-  const covers = String(shutters.covers || "").trim();
-  const key = String(shutters.key || "").trim();
-  return covers && key ? { covers, key } : null;
+  if (!shutters || typeof shutters !== "object") return null;
+  const list = Array.isArray(shutters) ? shutters : [shutters];
+  const result = list.map(shutter => ({
+    covers: String(shutter?.covers || "").trim(),
+    key: String(shutter?.key || "").trim()
+  })).filter(shutter => shutter.covers && shutter.key);
+  return result.length ? result : null;
 }
 
 function normaliseTier(value) {
   if (value === "Auto") return "Auto";
   return ({ "Viegla": "Easy", "Vidēja": "Medium", "Grūta": "Hard", "Ekstrēma": "Brutal" })[value] ||
-    (["Easy", "Medium", "Hard", "Brutal"].includes(value) ? value : "Auto");
+    (["Easy", "Medium", "Hard", "Brutal", "Fragile", "Unwinnable", "Broken"].includes(value) ? value : "Auto");
 }
 
 function prismLevelToState(level) {
@@ -242,6 +260,7 @@ function prismLevelToState(level) {
     beltCap: level.beltCap,
     seed: level.seed,
     containers: level.containers,
+    links: level.links,
     mystery: level.mystery,
     thick: level.thick,
     regions: level.regions,
@@ -466,40 +485,84 @@ function updateDifficultyHint() {
     hint.textContent = `Manuāli izvēlēta: ${state.difficulty}.`;
     return;
   }
-  hint.textContent = `Automātiski: ${estimateDifficulty(state)} (pēc režģa un mehāniku sarežģītības).`;
+  const report = difficultyReport(state);
+  if (!report) {
+    hint.textContent = "Spēles simulatora pārbaude tiek gatavota…";
+    scheduleDifficultyTest();
+    return;
+  }
+  const randomRate = Math.round(report.randomWinRate * 100);
+  const skilled = report.skilledWins.length ? report.skilledWins.join(", ") : "neviena";
+  hint.textContent = `Spēles createSim: ${report.tier} · random ${randomRate}% · prasmīgās: ${skilled} · ${report.publishable ? "publicējams" : "nav publicējams"}.`;
 }
 
 function estimateDifficulty(levelState) {
+  return difficultyReport(levelState)?.tier || "Auto";
+}
+
+function difficultyReport(levelState) {
+  const { signature } = simulationPayload(levelState);
+  return difficultyCache.get(signature) || null;
+}
+
+function simulationPayload(levelState) {
   const grid = exportedGrid(levelState);
   const counts = {};
-  let changes = 0;
-  grid.forEach((row, y) => [...row].forEach((code, x) => {
-    counts[code] = (counts[code] || 0) + 1;
-    if (x && grid[y][x - 1] !== code) changes++;
-    if (y && grid[y - 1][x] !== code) changes++;
-  }));
-  const total = levelState.width * levelState.height || 1;
-  const colours = Object.keys(counts).length;
-  const largestPool = Math.max(...Object.values(counts), 0) / total;
-  const boundaryDensity = changes / total;
-  const thickCost = Object.values(levelState.thick || {}).reduce((sum, hp) => sum + Math.max(0, hp - 1), 0);
-  let score = 0;
-  if (colours >= 5) score++;
-  if (colours >= 8) score++;
-  if (boundaryDensity > 1.05) score++;
-  if (boundaryDensity > 1.45) score++;
-  if (largestPool < .34) score++;
-  if (levelState.mystery) score++;
-  if (thickCost >= 4) score++;
-  if (thickCost >= 10) score++;
-  if (levelState.regions && Object.keys(levelState.regions).length) score++;
-  if (levelState.shutters) score += 2;
-  if (levelState.containers.some(container => container.cap <= 2)) score++;
-  return score <= 1 ? "Easy" : score <= 4 ? "Medium" : score <= 7 ? "Hard" : "Brutal";
+  grid.forEach(row => [...row].forEach(code => { counts[code] = (counts[code] || 0) + 1; }));
+  const palette = {};
+  levelState.tiles.forEach(tile => { palette[tile.code] = tile.color.toUpperCase(); });
+  if (!palette.K) palette.K = levelState.backgroundColor.toUpperCase();
+  const simulationLevel = {
+    grid,
+    palette,
+    containers: levelState.containers.length ? sortContainers(levelState.containers) : buildContainers(counts),
+    links: levelState.links || [],
+    mystery: exportMystery(levelState),
+    thick: levelState.thick,
+    regions: levelState.regions,
+    shutters: levelState.shutters,
+    beltCap: levelState.beltCap,
+    seed: levelState.seed,
+    name: levelState.name
+  };
+  const signature = JSON.stringify(simulationLevel);
+  return { signature, level: simulationLevel };
+}
+
+async function requestDifficultyReport(levelState, { fresh = false } = {}) {
+  const { signature, level } = simulationPayload(levelState);
+  if (!fresh && difficultyCache.has(signature)) return difficultyCache.get(signature);
+  if (!fresh && difficultyRequests.has(signature)) return difficultyRequests.get(signature);
+  const request = fetch("/api/difficulty", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level })
+  }).then(async response => {
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error || `Simulatora kļūda (${response.status})`);
+    difficultyCache.set(signature, payload);
+    return payload;
+  }).finally(() => difficultyRequests.delete(signature));
+  difficultyRequests.set(signature, request);
+  return request;
+}
+
+function scheduleDifficultyTest() {
+  clearTimeout(difficultyTimer);
+  difficultyTimer = setTimeout(async () => {
+    try {
+      await requestDifficultyReport(state);
+      updateDifficultyHint();
+    } catch (error) {
+      const hint = $("#difficultyHint");
+      if (hint) hint.textContent = `Simulatoru nevar palaist: ${error.message}`;
+    }
+  }, 250);
 }
 
 function resolvedTier(levelState) {
-  return levelState.difficulty === "Auto" ? estimateDifficulty(levelState) : levelState.difficulty;
+  if (levelState.difficulty !== "Auto") return levelState.difficulty;
+  return difficultyReport(levelState)?.tier || "Unwinnable";
 }
 
 function renderLevelBrowser() {
@@ -538,11 +601,20 @@ function renderContainers() {
     root.innerHTML = '<p class="containers-empty">Nav manuālu containers — eksports tos izveidos automātiski.</p>';
     return;
   }
+  // Simulatora kļūdas atsaucas uz eksportēto (col/r) secību. Rādām to pašu
+  // numuru GUI, bet pašu manuālo sarakstu vai JSON nemainām.
+  const simulatorNumbers = new Map(
+    state.containers
+      .map((container, index) => ({ container, index }))
+      .sort((a, b) => a.container.col - b.container.col || a.container.r - b.container.r || a.index - b.index)
+      .map((item, index) => [item.index, index + 1])
+  );
   state.containers.forEach((container, index) => {
     const row = document.createElement("div");
     row.className = "container-row";
     const options = state.tiles.map(tile => `<option value="${tile.code}"${tile.code === container.c ? " selected" : ""}>${tile.code}</option>`).join("");
-    row.innerHTML = `<label>Krāsa<select data-field="c">${options}</select></label>
+    row.innerHTML = `<span class="container-number" title="Container #${simulatorNumbers.get(index)}">#${simulatorNumbers.get(index)}</span>
+      <label>Krāsa<select data-field="c">${options}</select></label>
       <label>Cap<input data-field="cap" type="number" min="1" max="99" value="${container.cap}"></label>
       <label>Col / r<input data-field="position" value="${container.col} / ${container.r}" aria-label="Kolonna un rinda"></label>
       <button class="container-delete" title="Dzēst container" aria-label="Dzēst container">×</button>`;
@@ -604,27 +676,27 @@ function renderThick() {
     return;
   }
   entries.forEach(([position, hp]) => {
-    const [x, y] = position.split(",").map(Number);
-    const row = document.createElement("div");
-    row.className = "mechanic-row";
-    row.innerHTML = `<label>X,Y<input data-position value="${x},${y}" aria-label="Thick koordināte"></label>
+    const [row, col] = position.split(",").map(Number);
+    const rowElement = document.createElement("div");
+    rowElement.className = "mechanic-row";
+    rowElement.innerHTML = `<label>Rinda,kolonna<input data-position value="${row},${col}" aria-label="Thick koordināte"></label>
       <label>HP<input data-hp type="number" min="1" max="99" value="${hp}"></label>
       <button class="mechanic-delete" aria-label="Dzēst thick šūnu">×</button>`;
-    row.querySelector("[data-position]").addEventListener("change", event => updateThick(position, event.target.value, hp));
-    row.querySelector("[data-hp]").addEventListener("change", event => updateThick(position, position, Math.max(1, Math.trunc(+event.target.value || 1))));
-    row.querySelector(".mechanic-delete").addEventListener("click", () => {
+    rowElement.querySelector("[data-position]").addEventListener("change", event => updateThick(position, event.target.value, hp));
+    rowElement.querySelector("[data-hp]").addEventListener("change", event => updateThick(position, position, Math.max(1, Math.trunc(+event.target.value || 1))));
+    rowElement.querySelector(".mechanic-delete").addEventListener("click", () => {
       snapshot();
       delete state.thick[position];
       if (!Object.keys(state.thick).length) state.thick = null;
       changed();
     });
-    root.append(row);
+    root.append(rowElement);
   });
 }
 
 function updateThick(oldPosition, proposedPosition, hp) {
   const match = String(proposedPosition).match(/^\s*(\d+)\s*[, ]\s*(\d+)\s*$/);
-  if (!match) { toast("Thick koordināti ievadi formātā x,y", true); renderThick(); return; }
+  if (!match) { toast("Thick koordināti ievadi formātā rinda,kolonna", true); renderThick(); return; }
   const position = `${+match[1]},${+match[2]}`;
   snapshot();
   delete state.thick[oldPosition];
@@ -651,7 +723,7 @@ function renderRegions() {
     card.querySelector(".region-delete").addEventListener("click", () => {
       snapshot();
       delete state.regions[name];
-      if (state.shutters?.covers === name || state.shutters?.key === name) state.shutters = null;
+      if ((state.shutters || []).some(shutter => shutter.covers === name || shutter.key === name)) state.shutters = null;
       if (!Object.keys(state.regions).length) state.regions = null;
       changed();
     });
@@ -666,8 +738,10 @@ function renameRegion(oldName, newName) {
   snapshot();
   state.regions[name] = state.regions[oldName];
   delete state.regions[oldName];
-  if (state.shutters?.covers === oldName) state.shutters.covers = name;
-  if (state.shutters?.key === oldName) state.shutters.key = name;
+  (state.shutters || []).forEach(shutter => {
+    if (shutter.covers === oldName) shutter.covers = name;
+    if (shutter.key === oldName) shutter.key = name;
+  });
   changed();
 }
 
@@ -692,7 +766,7 @@ function renderShutters() {
   const enabled = !!state.shutters;
   $("#shuttersEnabled").checked = enabled;
   $("#shuttersSettings").classList.toggle("is-disabled", !enabled || !names.length);
-  const current = state.shutters || { covers: names[0] || "", key: names[1] || names[0] || "" };
+  const current = state.shutters?.[0] || { covers: names[0] || "", key: names[1] || names[0] || "" };
   ["#shuttersCovers", "#shuttersKey"].forEach((selector, index) => {
     const select = $(selector);
     select.replaceChildren();
@@ -898,15 +972,15 @@ $("#mysteryRevealAt").addEventListener("change", (event) => {
 
 $("#addThickBtn").addEventListener("click", () => {
   const used = new Set(Object.keys(state.thick || {}));
-  let x = 0, y = 0;
-  while (used.has(`${x},${y}`) && y < state.height) {
-    x = (x + 1) % state.width;
-    if (!x) y++;
+  let row = 0, col = 0;
+  while (used.has(`${row},${col}`) && row < state.height) {
+    col = (col + 1) % state.width;
+    if (!col) row++;
   }
-  if (y >= state.height) { toast("Visas režģa koordinātes jau izmantotas", true); return; }
+  if (row >= state.height) { toast("Visas režģa koordinātes jau izmantotas", true); return; }
   snapshot();
   state.thick ||= {};
-  state.thick[`${x},${y}`] = 2;
+  state.thick[`${row},${col}`] = 2;
   changed();
 });
 
@@ -928,16 +1002,16 @@ $("#shuttersEnabled").addEventListener("change", (event) => {
   }
   snapshot();
   const names = Object.keys(state.regions || {});
-  state.shutters = event.target.checked ? { covers: names[0], key: names[1] || names[0] } : null;
+  state.shutters = event.target.checked ? [{ covers: names[0], key: names[1] || names[0] }] : null;
   changed();
 });
 $("#shuttersCovers").addEventListener("change", event => {
   if (!state.shutters) return;
-  snapshot(); state.shutters.covers = event.target.value; changed();
+  snapshot(); state.shutters[0].covers = event.target.value; changed();
 });
 $("#shuttersKey").addEventListener("change", event => {
   if (!state.shutters) return;
-  snapshot(); state.shutters.key = event.target.value; changed();
+  snapshot(); state.shutters[0].key = event.target.value; changed();
 });
 
 function openTileDialog(tile = null) {
@@ -1550,15 +1624,33 @@ function rgbToHex({ r, g, b }) {
   return `#${[r, g, b].map(value => value.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
 }
 
-$("#exportBtn").addEventListener("click", () => {
-  const report = validate();
+$("#exportBtn").addEventListener("click", async () => {
+  const button = $("#exportBtn");
+  button.disabled = true;
+  levelCollection[activeLevelIndex] = clone(state);
+  toast("Notiek visu līmeņu pārbaude spēles simulatorā…");
   try {
+    const simulations = await Promise.all(levelCollection.map(level => requestDifficultyReport(level, { fresh: true })));
+    const report = validate(simulations[activeLevelIndex]);
+    if (report.errors.length) {
+      toast("Eksports bloķēts: līmenis neiztur publicēšanas vārtus", true);
+      return;
+    }
+    const blockedSlots = levelCollection
+      .filter((_, index) => index !== activeLevelIndex && !simulations[index].publishable)
+      .map(level => level.slot);
+    if (blockedSlots.length) {
+      toast(`Eksports bloķēts: publicēšanas vārtus neiztur slots ${blockedSlots.join(", ")}`, true);
+      return;
+    }
     const exportData = buildPrismCollection();
     downloadJson(exportData, "all-levels.json");
-    toast(report.errors.length ? "JSON fails eksportēts ar validācijas brīdinājumiem" : "JSON fails eksportēts");
+    toast(report.warnings.length ? "JSON fails eksportēts ar validācijas brīdinājumiem" : "JSON fails eksportēts");
   } catch (error) {
     console.error("JSON export failed", error);
-    toast("Neizdevās eksportēt JSON failu", true);
+    toast(`Neizdevās pārbaudīt vai eksportēt: ${error.message}`, true);
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -1607,12 +1699,12 @@ function buildPrismLevel(levelState) {
   return {
     slot: levelState.slot,
     name: levelState.name.trim() || "Untitled",
-    tier: levelState.difficulty,
+    tier: resolvedTier(levelState),
     source: levelState.source,
     grid,
     palette,
     containers,
-    links: [],
+    links: levelState.links ? clone(levelState.links) : [],
     mystery: exportMystery(levelState),
     thick: levelState.thick ? clone(levelState.thick) : null,
     regions: levelState.regions ? clone(levelState.regions) : null,
@@ -1689,7 +1781,7 @@ function splitCapacity(total) {
   return chunks;
 }
 
-function validate() {
+function validate(simulation = difficultyReport(state)) {
   const errors = [], warnings = [];
   const used = new Set(state.layers.flatMap(layer => layer.cells.flat()).filter(Boolean));
   if (!state.name.trim()) errors.push("Līmenim nav nosaukuma.");
@@ -1710,7 +1802,7 @@ function validate() {
   if (state.thick) {
     Object.entries(state.thick).forEach(([position, hp]) => {
       const [x, y] = position.split(",").map(Number);
-      if (x >= state.width || y >= state.height) errors.push(`Thick koordināte ${position} ir ārpus režģa.`);
+      if (x >= state.height || y >= state.width) errors.push(`Thick koordināte ${position} ir ārpus režģa.`);
       if (hp < 1) errors.push(`Thick ${position} HP jābūt vismaz 1.`);
     });
   }
@@ -1721,9 +1813,11 @@ function validate() {
   }
   if (state.shutters) {
     const names = new Set(Object.keys(state.regions || {}));
-    if (!names.has(state.shutters.covers) || !names.has(state.shutters.key)) {
-      errors.push("Shutters covers un key jāatsaucas uz esošiem regions.");
-    }
+    state.shutters.forEach(shutter => {
+      if (!names.has(shutter.covers) || !names.has(shutter.key)) {
+        errors.push("Shutters covers un key jāatsaucas uz esošiem regions.");
+      }
+    });
   }
   if (state.containers.length) {
     const positions = new Set();
@@ -1736,34 +1830,68 @@ function validate() {
     });
     const gridCounts = {};
     const containerCounts = {};
-    exportedGrid().forEach(row => [...row].forEach(code => { gridCounts[code] = (gridCounts[code] || 0) + 1; }));
+    exportedGrid().forEach((row, y) => [...row].forEach((code, x) => {
+      gridCounts[code] = (gridCounts[code] || 0) + Math.max(1, state.thick?.[`${y},${x}`] || 1);
+    }));
     state.containers.forEach(container => { containerCounts[container.c] = (containerCounts[container.c] || 0) + container.cap; });
     const mismatches = [...new Set([...Object.keys(gridCounts), ...Object.keys(containerCounts)])]
       .filter(code => (gridCounts[code] || 0) !== (containerCounts[code] || 0));
     if (mismatches.length) warnings.push(`Container ietilpība nesakrīt ar režģi krāsām: ${mismatches.join(", ")}.`);
   }
-  renderValidation(errors, warnings);
-  return { errors, warnings };
+  if (simulation) {
+    simulation.structure.critical.forEach(message => {
+      if (!errors.includes(message)) errors.push(message);
+    });
+    simulation.blockers.forEach(message => {
+      if (!errors.includes(message)) errors.push(message);
+    });
+    simulation.structure.warnings.forEach(message => {
+      if (!warnings.includes(message)) warnings.push(message);
+    });
+  } else {
+    errors.push("Grūtības pārbaude spēles simulatorā vēl nav izpildīta.");
+  }
+  renderValidation(errors, warnings, simulation);
+  return { errors, warnings, simulation };
 }
 
-function renderValidation(errors, warnings) {
+function renderValidation(errors, warnings, simulation = null) {
   const root = $("#validation");
   const messages = errors.length ? errors : warnings;
+  const strategyRows = Object.entries(simulation?.strategies || {}).map(([name, result]) =>
+    `<tr><td>${escapeHtml(name === "random" ? "random fleet" : name)}</td><td>${result.wins}/${result.runs}</td><td>${result.moves ?? "—"}</td><td>${result.mistakes ?? "—"}</td><td>${result.blockedSituations ?? "—"}</td><td>${result.stable ? "jā" : "nē"}</td></tr>`
+  ).join("");
+  const mechanics = simulation?.structure?.mechanics;
+  const structureSummary = simulation ? `<p class="simulation-structure">Krāsas: ${Object.keys(simulation.structure.colours || {}).length} · mazi/lieli trauki: ${simulation.structure.containerStructure?.small ?? 0}/${simulation.structure.containerStructure?.large ?? 0} · links: ${mechanics?.links.count ?? 0} · thick: ${mechanics?.thick.count ?? 0} · gold: ${mechanics?.gold.count ?? 0} · shutter: ${mechanics?.shutter.count ?? 0} · mystery: ${Math.round((mechanics?.mystery.proportion || 0) * 100)}%</p>` : "";
+  const report = simulation ? `<details class="simulation-report">
+    <summary>${escapeHtml(simulation.tier)} · spēles createSim · random ${Math.round(simulation.randomWinRate * 100)}% · ${simulation.publishable ? "publicējams" : "nav publicējams"}</summary>
+    ${structureSummary}
+    ${strategyRows ? `<table><thead><tr><th>Stratēģija</th><th>Uzvaras</th><th>Tiki</th><th>Kļūdas</th><th>Bloki</th><th>Stabila</th></tr></thead><tbody>${strategyRows}</tbody></table>` : ""}
+    ${simulation.blockers.length ? `<p class="simulation-blockers">${escapeHtml(simulation.blockers.join(" "))}</p>` : ""}
+  </details>` : "";
   root.classList.toggle("warning", !!messages.length);
   root.innerHTML = `<div><span class="check">${messages.length ? "!" : "✓"}</span><p><b>${errors.length ? "Jāizlabo kļūdas" : warnings.length ? "Ir brīdinājumi" : "Līmenis gatavs"}</b>
-    <small>${messages.length ? escapeHtml(messages.join(" ")) : "JSON var eksportēt"}</small></p></div>`;
+    <small>${messages.length ? escapeHtml(messages.join(" ")) : "JSON var eksportēt"}</small></p></div>${report}`;
 }
-$("#validateBtn").addEventListener("click", () => {
-  let assignedTier = null;
-  if (state.difficulty === "Auto") {
-    assignedTier = estimateDifficulty(state);
-    state.difficulty = assignedTier;
+$("#validateBtn").addEventListener("click", async () => {
+  const button = $("#validateBtn");
+  button.disabled = true;
+  toast("Līmenis tiek izspēlēts ar spēles simulatoru…");
+  try {
+    const simulation = await requestDifficultyReport(state, { fresh: true });
+    const previousTier = state.difficulty;
+    state.difficulty = simulation.tier;
     changed(false);
     syncForm();
+    const { errors, warnings } = validate(simulation);
+    const outcome = errors.length ? `${errors.length} kļūda(s)` : warnings.length ? `${warnings.length} brīdinājums(i)` : "Pārbaude pabeigta — viss kārtībā";
+    toast(`Spēles simulators piešķīra: ${simulation.tier}${previousTier === simulation.tier ? "" : ` (iepriekš: ${previousTier})`}. ${outcome}`, !!errors.length);
+  } catch (error) {
+    renderValidation([`Spēles simulatoru nevar palaist: ${error.message}`], []);
+    toast(`Simulatora kļūda: ${error.message}`, true);
+  } finally {
+    button.disabled = false;
   }
-  const { errors, warnings } = validate();
-  const outcome = errors.length ? `${errors.length} kļūda(s)` : warnings.length ? `${warnings.length} brīdinājums(i)` : "Pārbaude pabeigta — viss kārtībā";
-  toast(assignedTier ? `Automātiski izvēlēta grūtība: ${assignedTier}. ${outcome}` : outcome, !!errors.length);
 });
 
 $("#previewBtn").addEventListener("click", () => {
@@ -1800,5 +1928,7 @@ setTimeout(fitCanvas, 50);
 window.PIXEL_LEVEL_TOOL = {
   getLevel: () => clone(state),
   getPrismExport: () => buildPrismCollection(),
+  getDifficultyReport: () => clone(difficultyReport(state)),
+  testDifficulty: () => requestDifficultyReport(state, { fresh: true }).then(clone),
   loadLevel: data => { state = normaliseLevel(data); renderAll(); }
 };

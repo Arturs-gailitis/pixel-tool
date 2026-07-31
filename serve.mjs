@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { gradeWithGame } from "./game-difficulty.js";
 
 const port = Number(process.env.PORT || 8974);
 const root = process.cwd();
@@ -13,8 +14,18 @@ const types = {
 };
 
 createServer(async (request, response) => {
+  let pathname = "";
   try {
-    const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+    pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+    if (pathname === "/api/difficulty" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const report = gradeWithGame(body.level || body, {
+        randomRuns: body.randomRuns,
+        maxTicks: body.maxTicks
+      });
+      sendJson(response, 200, report);
+      return;
+    }
     const requested = pathname === "/" ? "index.html" : pathname.slice(1);
     const filepath = normalize(join(root, requested));
 
@@ -31,10 +42,33 @@ createServer(async (request, response) => {
       "Cache-Control": "no-store"
     });
     response.end(body);
-  } catch {
+  } catch (error) {
+    if (pathname.startsWith("/api/")) {
+      sendJson(response, 500, { error: String(error.message || error) });
+      return;
+    }
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("404 — fails nav atrasts");
   }
 }).listen(port, () => {
   console.log(`Pixel Level Tool: http://localhost:${port}`);
 });
+
+async function readJsonBody(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 2_000_000) throw new Error("Pieprasījums ir pārāk liels");
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function sendJson(response, status, value) {
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+  response.end(JSON.stringify(value));
+}
