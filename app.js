@@ -934,11 +934,14 @@ $("#addContainerBtn").addEventListener("click", () => {
 $("#autoContainersBtn").addEventListener("click", () => {
   const grid = exportedGrid();
   const counts = {};
-  grid.forEach(row => [...row].forEach(code => { counts[code] = (counts[code] || 0) + 1; }));
+  grid.forEach((row, y) => [...row].forEach((code, x) => {
+    const hp = Math.max(1, Number(state.thick?.[`${y},${x}`] || 1));
+    counts[code] = (counts[code] || 0) + hp;
+  }));
   snapshot();
   state.containers = buildContainers(counts);
   changed();
-  toast("Containers izveidoti no režģa krāsu skaita");
+  toast("Containers izveidoti no režģa krāsu un thick HP skaita");
 });
 
 $("#clearContainersBtn").addEventListener("click", () => {
@@ -1840,10 +1843,15 @@ function sortContainers(containers) {
 }
 
 function buildContainers(counts) {
-  const queues = Object.entries(counts).map(([code, total]) => ({
+  // Vispirms sadala lielākās krāsu grupas. Režģa pirmās šūnas secība var būt
+  // vizuāli nejauša un radīt neizspēlējamu container rindu, lai gan HP paritāte
+  // ir pareiza.
+  const queues = Object.entries(counts)
+    .sort(([codeA, totalA], [codeB, totalB]) => totalB - totalA || codeA.localeCompare(codeB))
+    .map(([code, total]) => ({
     code,
     chunks: splitCapacity(total)
-  }));
+    }));
   const ordered = [];
   while (queues.some(queue => queue.chunks.length)) {
     queues.forEach(queue => {
