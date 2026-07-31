@@ -720,13 +720,7 @@ function updateContainer(index, values) {
 }
 
 function containersForTray() {
-  if (state.containers.length) return state.containers;
-  const counts = {};
-  exportedGrid().forEach((row, y) => [...row].forEach((code, x) => {
-    const hp = Math.max(1, Number(state.thick?.[`${y},${x}`] || 1));
-    counts[code] = (counts[code] || 0) + hp;
-  }));
-  return buildContainers(counts);
+  return state.containers;
 }
 
 function renderContainerTray() {
