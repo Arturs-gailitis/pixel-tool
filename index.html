@@ -269,7 +269,7 @@
       </label>
       <p>Token netiek saglabāts projektā vai pārlūka atmiņā pēc dialoga aizvēršanas.</p>
     </details>
-    <p class="dialog-help">Attēls tiks pielāgots skaidram 12 × 12 līmeņa režģim. Pēc ģenerēšanas varēsi izvēlēties krāsu skaitu un importa režīmu.</p>
+    <p class="dialog-help">Attēls tiks pielāgots pašreizējam <span id="promptImageGridSize">12 × 12</span> līmeņa režģim. Pēc ģenerēšanas varēsi izvēlēties krāsu skaitu un importa režīmu.</p>
     <p id="promptImageStatus" class="prompt-image-status" role="status">Ievadi Cloudflare Account ID un Workers AI API tokenu iestatījumos.</p>
     <div class="dialog-actions">
       <button id="cancelPromptImage" class="button ghost">Atcelt</button>
@@ -292,8 +292,8 @@
       </select>
     </label>
     <div class="image-import-preview">
-      <canvas id="imageImportPreview" width="240" height="240" aria-label="12 reiz 12 attēla priekšskatījums"></canvas>
-      <span>12 × 12 priekšskatījums</span>
+      <canvas id="imageImportPreview" width="240" height="240" aria-label="Attēla priekšskatījums pašreizējam režģim"></canvas>
+      <span id="imageGridPreviewLabel">12 × 12 priekšskatījums</span>
     </div>
     <label class="colour-count-label" for="imageColorRange">Izmantot krāsas <output id="imageColorOutput">8</output></label>
     <input id="imageColorRange" type="range" min="2" max="10" value="8" step="1">

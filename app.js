@@ -13,7 +13,6 @@ const defaultTiles = [
   { id: "spikes", code: "M", name: "Dzintara", type: "hazard", color: "#f5a623", symbol: "▲" }
 ];
 const prismCodes = "KIRGAVMFLBCDEHJNOPQSTUWXYZ0123456789";
-const imageGridSize = 12;
 
 function blankCells(width, height) {
   return Array.from({ length: height }, () => Array(width).fill(null));
@@ -1167,6 +1166,7 @@ $("#imageInput").addEventListener("change", async (event) => {
 });
 
 $("#generateImageBtn").addEventListener("click", () => {
+  updateImageImportGridLabels();
   setPromptImageStatus("Ievadi Cloudflare Account ID un Workers AI API tokenu iestatījumos.");
   $("#promptImageDialog").showModal();
   $("#imagePrompt").focus();
@@ -1194,6 +1194,7 @@ async function openImageImport(file) {
     return;
   }
   try {
+    updateImageImportGridLabels();
     pendingImageFile = file;
     pendingImage = await readImage(file);
     $("#imageFileName").textContent = file.name;
@@ -1299,7 +1300,8 @@ $("#confirmImageImport").addEventListener("click", async () => {
   const file = pendingImageFile;
   const image = pendingImage;
   const mode = $("#imageConversionMode").value;
-  const result = pendingImageResult || imageToLevel(image, imageGridSize, imageGridSize, imageColorCount, mode);
+  const { width, height } = currentImageGridSize();
+  const result = pendingImageResult || imageToLevel(image, width, height, imageColorCount, mode);
   pendingImageFile = null;
   pendingImage = null;
   pendingImageResult = null;
@@ -1322,36 +1324,54 @@ function scheduleImagePreview() {
 function updateImageImportPreview() {
   if (!pendingImage) return;
   const mode = $("#imageConversionMode").value;
-  pendingImageResult = imageToLevel(pendingImage, imageGridSize, imageGridSize, imageColorCount, mode);
+  const { width, height } = currentImageGridSize();
+  pendingImageResult = imageToLevel(pendingImage, width, height, imageColorCount, mode);
   const preview = $("#imageImportPreview");
+  const previewScale = 240 / Math.max(width, height);
+  preview.width = Math.max(1, Math.round(width * previewScale));
+  preview.height = Math.max(1, Math.round(height * previewScale));
   const context = preview.getContext("2d");
-  const cellSize = preview.width / imageGridSize;
+  const cellWidth = preview.width / width;
+  const cellHeight = preview.height / height;
   context.fillStyle = pendingImageResult.background;
   context.fillRect(0, 0, preview.width, preview.height);
   pendingImageResult.cells.forEach((row, y) => row.forEach((tileId, x) => {
     const tile = pendingImageResult.tiles.find(item => item.id === tileId);
     context.fillStyle = tile?.color || pendingImageResult.background;
-    context.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+    context.fillRect(x * cellWidth, y * cellHeight, cellWidth, cellHeight);
   }));
   context.strokeStyle = "#ffffff24";
   context.lineWidth = 1;
-  for (let index = 0; index <= imageGridSize; index++) {
+  for (let index = 0; index <= width; index++) {
     context.beginPath();
-    context.moveTo(index * cellSize, 0);
-    context.lineTo(index * cellSize, preview.height);
-    context.stroke();
-    context.beginPath();
-    context.moveTo(0, index * cellSize);
-    context.lineTo(preview.width, index * cellSize);
+    context.moveTo(index * cellWidth, 0);
+    context.lineTo(index * cellWidth, preview.height);
     context.stroke();
   }
+  for (let index = 0; index <= height; index++) {
+    context.beginPath();
+    context.moveTo(0, index * cellHeight);
+    context.lineTo(preview.width, index * cellHeight);
+    context.stroke();
+  }
+}
+
+function currentImageGridSize() {
+  return { width: state.width, height: state.height, label: `${state.width} × ${state.height}` };
+}
+
+function updateImageImportGridLabels() {
+  const { label } = currentImageGridSize();
+  $("#promptImageGridSize").textContent = label;
+  $("#imageGridPreviewLabel").textContent = `${label} priekšskatījums`;
+  $("#confirmImageImport").textContent = `Izveidot ${label} režģi`;
 }
 
 function importImageResult(file, result) {
   try {
     snapshot();
-    state.width = imageGridSize;
-    state.height = imageGridSize;
+    state.width = result.cells[0]?.length || state.width;
+    state.height = result.cells.length || state.height;
     state.tiles = result.tiles;
     state.containers = [];
     state.layers = [{
@@ -1365,7 +1385,7 @@ function importImageResult(file, result) {
     selectedTile = result.tiles[0].id;
     changed();
     fitCanvas();
-    toast(`Attēls pārvērsts 12 × 12 režģī ar ${result.tiles.length} krāsām`);
+    toast(`Attēls pārvērsts ${state.width} × ${state.height} režģī ar ${result.tiles.length} krāsām`);
   } catch (error) {
     toast(`Neizdevās apstrādāt attēlu: ${error.message}`, true);
   }

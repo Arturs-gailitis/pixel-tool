@@ -15,7 +15,7 @@ Atver `http://localhost:8974`. Windows vidē var arī palaist `start-editor.bat`
 ### Attēla ģenerēšana no promta
 
 Poga **No promta** izveido attēlu ar Cloudflare Workers AI un pēc tam atver to tajā pašā
-12 × 12 importa priekšskatījumā kā augšupielādētu attēlu. Promta dialogā ievadi Cloudflare
+pašreizējā režģa izmēra importa priekšskatījumā kā augšupielādētu attēlu. Promta dialogā ievadi Cloudflare
 Account ID un Workers AI API tokenu; token netiek saglabāts JSON failos vai `localStorage`, un
 tiek iztīrīts, aizverot dialogu. Šo režīmu izmanto tikai lokāli vai uzticamā HTTPS vidē, jo tokens
 tiek nosūtīts lokālajam Node.js serverim attēla ģenerēšanas pieprasījumā.
@@ -30,14 +30,14 @@ bet promta dialogs parāda konfigurācijas kļūdu.
 
 - zīmēšana ar otu, dzēšgumiju, laukuma aizpildīšanu un krāsas/flīzes paņemšanu;
 - līmeņa attēla ģenerēšana no brīva teksta promta un automātiska nodošana esošajam attēla importam;
-- PNG, JPG, WebP vai GIF attēla imports uz 12 × 12 režģi ar objekta/svarīgākā apgabala atrašanu, adaptīvu krāsu atlasi un pārklājuma analīzi, kas saglabā silueta līknes un plānās detaļas;
+- PNG, JPG, WebP vai GIF attēla imports uz pašreizējo režģa izmēru ar objekta/svarīgākā apgabala atrašanu, adaptīvu krāsu atlasi un pārklājuma analīzi, kas saglabā silueta līknes un plānās detaļas;
 - maināms režģa un flīžu izmērs;
 - rediģējama flīžu palete ar tipu, krāsu un simbolu;
 - vairāki paslēpjami, pārsaucami un dzēšami slāņi;
 - manuāli veidojami Prism Pop! `containers` ar krāsu, ietilpību, kolonnu un rindu;
 - `mystery` objekta veidošana ar `proportion`, `revealAt` un paletes krāsu `exclude` izvēli;
 - `thick`, nosauktu `regions` un `shutters` (`covers`/`key`) veidošana un JSON validācija;
-- attēla importa 12 × 12 priekšskatījums ar Auto, objekta/logo, fotogrāfijas un pilnā attēla režīmiem;
+- attēla importa priekšskatījums pašreizējā režģa izmērā ar Auto, objekta/logo, fotogrāfijas un pilnā attēla režīmiem;
 - lietotāja izvēlēts 2–10 krāsu mērķis, kas saglabā dominējošās krāsas, starptoņus un atšķirīgus akcentus;
 - undo/redo un automātisks lokālais melnraksts pārlūkā;
 - līmeņu saraksts ar pārslēgšanos starp visiem importētajiem līmeņiem, validācija, priekšskatījums, JSON imports un eksports;

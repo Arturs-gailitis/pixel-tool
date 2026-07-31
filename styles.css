@@ -210,7 +210,7 @@ dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 5px 0
 .image-mode-label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; }
 .image-mode-label select { width: 100%; border: 1px solid var(--line); background: #15131b; border-radius: 4px; padding: 8px; }
 .image-import-preview { display: grid; place-items: center; gap: 6px; margin: 14px 0 18px; }
-#imageImportPreview { width: min(240px, 65vw); height: min(240px, 65vw); border: 1px solid var(--line); background: #111; image-rendering: pixelated; }
+#imageImportPreview { max-width: min(240px, 65vw); max-height: 45vh; width: auto; height: auto; border: 1px solid var(--line); background: #111; image-rendering: pixelated; }
 .image-import-preview span { color: var(--muted); font: 8px DM Mono, monospace; text-transform: uppercase; letter-spacing: .1em; }
 .colour-count-label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; }
 .colour-count-label output { color: var(--accent); font: 700 27px DM Mono, monospace; }
