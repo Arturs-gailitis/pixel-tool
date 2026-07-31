@@ -483,7 +483,7 @@ function updateDifficultyHint() {
   const hint = $("#difficultyHint");
   if (!hint) return;
   if (state.difficulty !== "Auto") {
-    hint.textContent = `Manuāli izvēlēta: ${state.difficulty}.`;
+    hint.textContent = `Manuāli izvēlēta grūtība: ${difficultyLabel(state.difficulty)}. Automātiskā pārbaude šo izvēli nemainīs.`;
     return;
   }
   const report = difficultyReport(state);
@@ -492,9 +492,88 @@ function updateDifficultyHint() {
     scheduleDifficultyTest();
     return;
   }
+  hint.textContent = difficultyExplanation(report);
+}
+
+function difficultyLabel(tier) {
+  return ({
+    Easy: "Viegla", Medium: "Vidēja", Hard: "Grūta", Brutal: "Ļoti grūta",
+    Fragile: "Nestabila", Unwinnable: "Neuzvarama", Broken: "Jāizlabo"
+  })[tier] || tier;
+}
+
+function difficultyExplanation(report) {
+  const meaning = {
+    Easy: "Līmeni var pabeigt arī bez īpašas plānošanas.",
+    Medium: "Līmenis ir pabeidzams, bet gājieni jāizvēlas apdomīgi.",
+    Hard: "Lai uzvarētu, nepieciešama rūpīga gājienu secība.",
+    Brutal: "Līmenis ir ļoti sarežģīts; simulators atrada tikai vienu uzticamu pieeju.",
+    Fragile: "Līmenis reizēm izdodas, bet nav pietiekami stabils godīgai spēlei.",
+    Unwinnable: "Simulators neatrada veidu, kā šo līmeni pabeigt.",
+    Broken: "Līmeņa iestatījumos ir kļūda, kas jāizlabo pirms spēlēšanas."
+  }[report.tier] || "Grūtība nav noteikta.";
   const randomRate = Math.round(report.randomWinRate * 100);
-  const skilled = report.skilledWins.length ? report.skilledWins.join(", ") : "neviena";
-  hint.textContent = `Spēles createSim: ${report.tier} · random ${randomRate}% · prasmīgās: ${skilled} · ${report.publishable ? "publicējams" : "nav publicējams"}.`;
+  const random = randomRate === 0
+    ? "Nejaušā pārbaudē nebija nevienas uzvaras — tas nenozīmē, ka līmenis noteikti nav pabeidzams, tikai to, ka nejauši gājieni neder."
+    : `Nejaušā pārbaudē uzvarēja ${randomRate}% mēģinājumu.`;
+  const publish = report.publishable
+    ? "Līmenis atbilst publicēšanas prasībām."
+    : "Līmenis vēl nav gatavs publicēšanai — apskati zemāk norādīto, kas jāizlabo.";
+  return `${difficultyLabel(report.tier)}: ${meaning} ${random} ${publish}`;
+}
+
+function friendlyIssue(message) {
+  let match;
+  if (message === "Līmenim nav nosaukuma.") return "Ievadi līmeņa nosaukumu sadaļā “Līmeņa dati”.";
+  if (message === "Līmenis ir tukšs.") return "Režģī vēl nav nevienas flīzes. Uzzīmē līmeni, lai to varētu pārbaudīt vai eksportēt.";
+  if (message === "Flīžu JSON kodi nav unikāli.") return "Divām vai vairākām flīzēm ir viens un tas pats burts. Katras flīzes kodam jābūt atšķirīgam.";
+  if (message === "Flīžu kodiem jābūt vienam lielajam burtam vai ciparam.") return "Katras flīzes kodam izmanto vienu lielo burtu vai ciparu, piemēram, A vai 3.";
+  if (message === "Prism Pop! paletē ieteicamas 4–10 krāsas.") return "Ieteicams izmantot no 4 līdz 10 krāsām, lai līmenis būtu viegli spēlējams.";
+  if (message === "Mystery proportion jābūt intervālā no 0 līdz 1.") return "Mystery daudzumam jābūt starp 0% un 100%.";
+  if (message === "Līmenim nav trauku.") return "Izveido containers, lai katrai krāsai būtu vieta, kur nonākt bumbiņām.";
+  if (message === "Līmenim trūkst paletes.") return "Līmenim nav pievienotas flīžu krāsas. Pārbaudi flīžu paleti.";
+  if (message === "Līmeņa režģis nav korekts vai ir tukšs.") return "Režģis ir tukšs vai bojāts. Uzzīmē vismaz vienu flīzi un mēģini vēlreiz.";
+  if (message === "Režģa rindām nav vienāds garums.") return "Režģa dati ir bojāti. Maini režģa izmēru vai importē līmeni vēlreiz.";
+  if ((match = /^Paletes likums: PALETTE (.+): no DARK anchor \(V<=0\.35\)$/.exec(message))) {
+    return `Paletes noteikums: paletē “${match[1]}” nav pietiekami tumšas pamatkrāsas. Pievieno krāsu, kuras gaišums nepārsniedz 35%.`;
+  }
+  if ((match = /^Paletes likums: PALETTE (.+): adjacent mid hues (-?\d+(?:\.\d+)?)deg apart \(< 45\)$/.exec(message))) {
+    return `Paletes noteikums: paletē “${match[1]}” divas vidēji gaišas krāsas ir pārāk līdzīgas — to atšķirība ir tikai ${match[2]}°. Izvēlies krāsas ar vismaz 45° atšķirību.`;
+  }
+  if ((match = /^HP paritāte krāsai (.+) nesakrīt: bumbiņām (\d+), traukiem (\d+)\.$/.exec(message))) {
+    return `Krāsai ${match[1]} režģī ir ${match[2]} bumbiņas, bet containers kopā ietilpst ${match[3]}. Izveido vai pielāgo containers, lai skaits sakristu.`;
+  }
+  if ((match = /^Container ietilpība nesakrīt ar režģi krāsām: (.+)\.$/.exec(message))) {
+    return `Šīm krāsām bumbiņu skaits nesakrīt ar container cap: ${match[1]}. Atver container skatu un izlīdzini cap vērtības.`;
+  }
+  if ((match = /^Container izmanto nezināmu krāsu: (.+)\.$/.exec(message))) return `Container izmanto krāsu ${match[1]}, kuras nav flīžu paletē. Izvēlies kādu no paletes krāsām.`;
+  if ((match = /^Container (.+) ietilpība \((\d+)\) pārsniedz beltCap \((\d+)\)\.$/.exec(message))) return `Container ${match[1]} ir par lielu: tajā ir ${match[2]} bumbiņas, bet jostas limits ir ${match[3]}. Samazini cap vai palielini jostas limitu.`;
+  if (message.startsWith("Divi containers atrodas pozīcijā")) return "Divi containers ir novietoti vienā vietā. Pārvieto vienu no tiem citā rindā.";
+  if (message.startsWith("Mystery exclude izmanto nezināmu krāsu")) return "Mystery iestatījumos izvēlēta krāsa, kuras vairs nav paletē. Noņem to no izslēgto krāsu saraksta.";
+  if (message.startsWith("Thick ") && message.includes("HP jābūt vismaz 1")) return "Biezajai flīzei jābūt vismaz ar 1 stipruma punktu.";
+  if (message.startsWith("Thick koordināte")) return "Biezā flīze ir ārpus režģa. Izdzēs to vai iestati derīgu vietu.";
+  if (message.startsWith("Region ") && message.includes("ārpus režģa")) return "Reģionā ir šūna ārpus režģa. Izlabo reģiona koordinātes.";
+  if (message === "Shutters covers un key jāatsaucas uz esošiem regions.") return "Aizsegam jānorāda esošs aizsega reģions un esošs atslēgas reģions.";
+  if (message.includes("netika atrasts") && message.includes("uzvaras ceļš")) return "Simulators neatrada iespēju pabeigt līmeni. Pārbaudi container secību, cap vērtības un jostas limitu.";
+  if (message.includes("neiztur README publicēšanas vārtus") || message.includes("pārāk nestabils publicēšanai")) return "Līmenis nav pietiekami stabils publicēšanai. Pamēģini padarīt sākuma gājienus drošākus un pārbaudi container secību.";
+  if (message.includes("Jostas limitam jābūt")) return `${message} Iestati šo vērtību sadaļā “Līmeņa dati”.`;
+  if (message.startsWith("Spēles simulatoru nevar palaist") || message.startsWith("Simulatora kļūda")) return "Spēles pārbaudi šobrīd neizdevās palaist. Pamēģini vēlreiz pēc brīža.";
+  if (message.includes("atslēga pārklājas")) return "Aizsega atslēga atrodas zem paša aizsega, tāpēc spēlētājs tai nevar piekļūt. Pārvieto atslēgas reģionu ārpus aizsega.";
+  if (message.includes("atslēgas krāsu slēpj mystery")) return "Mystery var paslēpt krāsu, kas vajadzīga aizsega atvēršanai. Tas var padarīt līmeni negodīgu.";
+  if ((match = /^Traukam #(\d+) ir nederīga ietilpība\.$/.exec(message))) return `Container ${match[1]} nav ievadīts derīgs bumbiņu skaits. Ievadi vismaz 1.`;
+  if ((match = /^Trauks #(\d+) izmanto trūkstošu krāsu (.+)\.$/.exec(message))) return `Container ${match[1]} izmanto krāsu ${match[2]}, kas vairs nav flīžu paletē. Izvēlies esošu krāsu.`;
+  if ((match = /^Traukam #(\d+) ir neatļauta kolonna vai rindas pozīcija\.$/.exec(message))) return `Container ${match[1]} atrodas nederīgā vietā. Pārvieto to uz kādu no četrām kolonnām.`;
+  if (message.startsWith("Vairāki trauki atrodas pozīcijā")) return "Divi containers ir novietoti vienā vietā. Pārvieto vienu no tiem citā rindā.";
+  if ((match = /^Režģa krāsai (.+) nav paletes ieraksta\.$/.exec(message))) return `Režģī izmantota krāsa ${match[1]}, kuras vairs nav flīžu paletē. Pievieno krāsu atpakaļ vai nomaini šo flīzi.`;
+  if (message.startsWith("Nederīgs thick HP")) return "Biezajai flīzei ir nederīgs stipruma skaits. Ievadi vismaz 1.";
+  if (message.startsWith("Thick koordināte")) return "Viena biezā flīze atrodas ārpus režģa. Izdzēs to vai iestati derīgu vietu.";
+  if (message.startsWith("Reģions ") && message.includes("tukšs vai nekorekts")) return "Kāds reģions ir tukšs vai bojāts. Pievieno tam vismaz vienu režģa šūnu.";
+  if (message.startsWith("Reģionā ") && message.includes("ārpus režģa")) return "Kādā reģionā ir šūna ārpus režģa. Izlabo reģiona koordinātes.";
+  if (message.startsWith("Shutter #") && message.includes("neesošu")) return "Aizsegs atsaucas uz reģionu, kas neeksistē. Izvēlies esošu aizsega un atslēgas reģionu.";
+  if (message.startsWith("Links #")) return "Saite savieno neesošu container. Izveido saiti no jauna vai izdzēs to.";
+  if (message === "Dažas paletes krāsas ir grūti vizuāli atšķiramas.") return "Dažas krāsas ir ļoti līdzīgas. Izvēlies atšķirīgākas krāsas, lai spēlētājam tās būtu vieglāk pamanīt.";
+  if (message === "Grūtības pārbaude spēles simulatorā vēl nav izpildīta.") return "Nospied “Pārbaudīt”, lai simulators var novērtēt līmeņa grūtību un publicējamību.";
+  return message;
 }
 
 function estimateDifficulty(levelState) {
@@ -2071,20 +2150,29 @@ function validate(simulation = difficultyReport(state)) {
 function renderValidation(errors, warnings, simulation = null) {
   const root = $("#validation");
   const messages = errors.length ? errors : warnings;
+  const friendlyMessages = messages.map(friendlyIssue);
   const strategyRows = Object.entries(simulation?.strategies || {}).map(([name, result]) =>
-    `<tr><td>${escapeHtml(name === "random" ? "random fleet" : name)}</td><td>${result.wins}/${result.runs}</td><td>${result.moves ?? "—"}</td><td>${result.mistakes ?? "—"}</td><td>${result.blockedSituations ?? "—"}</td><td>${result.stable ? "jā" : "nē"}</td></tr>`
+    `<tr><td>${escapeHtml(strategyLabel(name))}</td><td>${result.wins}/${result.runs}</td><td>${result.moves ?? "—"}</td><td>${result.mistakes ?? "—"}</td><td>${result.blockedSituations ?? "—"}</td><td>${result.stable ? "jā" : "nē"}</td></tr>`
   ).join("");
   const mechanics = simulation?.structure?.mechanics;
   const structureSummary = simulation ? `<p class="simulation-structure">Krāsas: ${Object.keys(simulation.structure.colours || {}).length} · mazi/lieli trauki: ${simulation.structure.containerStructure?.small ?? 0}/${simulation.structure.containerStructure?.large ?? 0} · links: ${mechanics?.links.count ?? 0} · thick: ${mechanics?.thick.count ?? 0} · gold: ${mechanics?.gold.count ?? 0} · shutter: ${mechanics?.shutter.count ?? 0} · mystery: ${Math.round((mechanics?.mystery.proportion || 0) * 100)}%</p>` : "";
   const report = simulation ? `<details class="simulation-report">
-    <summary>${escapeHtml(simulation.tier)} · spēles createSim · random ${Math.round(simulation.randomWinRate * 100)}% · ${simulation.publishable ? "publicējams" : "nav publicējams"}</summary>
+    <summary>${escapeHtml(difficultyLabel(simulation.tier))} — ${escapeHtml(simulation.publishable ? "gatavs publicēšanai" : "vēl jāizlabo")}</summary>
+    <p class="simulation-explanation">${escapeHtml(difficultyExplanation(simulation))}</p>
     ${structureSummary}
-    ${strategyRows ? `<table><thead><tr><th>Stratēģija</th><th>Uzvaras</th><th>Tiki</th><th>Kļūdas</th><th>Bloki</th><th>Stabila</th></tr></thead><tbody>${strategyRows}</tbody></table>` : ""}
-    ${simulation.blockers.length ? `<p class="simulation-blockers">${escapeHtml(simulation.blockers.join(" "))}</p>` : ""}
+    ${strategyRows ? `<table><thead><tr><th>Spēles veids</th><th>Uzvaras</th><th>Gājieni</th><th>Kļūdas</th><th>Bloķējumi</th><th>Stabila</th></tr></thead><tbody>${strategyRows}</tbody></table>` : ""}
+    ${simulation.blockers.length ? `<ul class="simulation-blockers">${simulation.blockers.map(message => `<li>${escapeHtml(friendlyIssue(message))}</li>`).join("")}</ul>` : ""}
   </details>` : "";
   root.classList.toggle("warning", !!messages.length);
-  root.innerHTML = `<div><span class="check">${messages.length ? "!" : "✓"}</span><p><b>${errors.length ? "Jāizlabo kļūdas" : warnings.length ? "Ir brīdinājumi" : "Līmenis gatavs"}</b>
-    <small>${messages.length ? escapeHtml(messages.join(" ")) : "JSON var eksportēt"}</small></p></div>${report}`;
+  root.innerHTML = `<div><span class="check">${messages.length ? "!" : "✓"}</span><div class="validation-copy"><b>${errors.length ? "Jāizlabo kļūdas" : warnings.length ? "Ir brīdinājumi" : "Līmenis gatavs"}</b>
+    ${messages.length ? `<ul class="validation-list">${friendlyMessages.map(message => `<li>${escapeHtml(message)}</li>`).join("")}</ul>` : "<small>Viss ir kārtībā — līmeni var eksportēt.</small>"}</div></div>${report}`;
+}
+
+function strategyLabel(name) {
+  return ({
+    random: "Nejauši gājieni", casual: "Vienkārša spēle", greedy: "Tuvākais mērķis",
+    cautious: "Piesardzīga spēle", lookahead: "Plānojoša spēle"
+  })[name] || name;
 }
 $("#validateBtn").addEventListener("click", async () => {
   const button = $("#validateBtn");
@@ -2092,13 +2180,15 @@ $("#validateBtn").addEventListener("click", async () => {
   toast("Līmenis tiek izspēlēts ar spēles simulatoru…");
   try {
     const simulation = await requestDifficultyReport(state, { fresh: true });
-    const previousTier = state.difficulty;
     state.difficulty = simulation.tier;
     changed(false);
     syncForm();
     const { errors, warnings } = validate(simulation);
-    const outcome = errors.length ? `${errors.length} kļūda(s)` : warnings.length ? `${warnings.length} brīdinājums(i)` : "Pārbaude pabeigta — viss kārtībā";
-    toast(`Spēles simulators piešķīra: ${simulation.tier}${previousTier === simulation.tier ? "" : ` (iepriekš: ${previousTier})`}. ${outcome}`, !!errors.length);
+    const outcome = errors.length
+      ? "Ir lietas, kas jāizlabo — skaties saprotamo sarakstu zem pārbaudes pogas."
+      : warnings.length ? "Ir ieteikumi — līmeni var uzlabot, apskatot sarakstu zem pārbaudes pogas."
+      : "Viss ir kārtībā.";
+    toast(`Grūtība: ${difficultyLabel(simulation.tier)}. ${outcome}`, !!errors.length);
   } catch (error) {
     renderValidation([`Spēles simulatoru nevar palaist: ${error.message}`], []);
     toast(`Simulatora kļūda: ${error.message}`, true);
