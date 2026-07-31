@@ -466,13 +466,14 @@ function renderAll() {
   renderPalette();
   renderLayers();
   renderContainers();
+  renderContainerTray();
   renderMystery();
   renderThick();
   renderRegions();
   renderShutters();
   renderLevelBrowser();
   renderCanvas();
-  $("#canvasWrap").style.transform = `scale(${zoom})`;
+  $("#boardWrap").style.transform = `scale(${zoom})`;
   $("#zoomValue").textContent = `${Math.round(zoom * 100)}%`;
   $("#mapStats").textContent = `${state.width} × ${state.height} · ${state.width * state.height} flīzes`;
   updateHistoryButtons();
@@ -596,6 +597,7 @@ function switchLevel(index) {
 
 function renderContainers() {
   const root = $("#containers");
+  if (!root) return;
   root.replaceChildren();
   if (!state.containers.length) {
     root.innerHTML = '<p class="containers-empty">Nav manuālu containers — eksports tos izveidos automātiski.</p>';
@@ -636,6 +638,97 @@ function updateContainer(index, values) {
   snapshot();
   Object.assign(state.containers[index], values);
   changed();
+}
+
+function containersForTray() {
+  if (state.containers.length) return state.containers;
+  const counts = {};
+  exportedGrid().forEach((row, y) => [...row].forEach((code, x) => {
+    const hp = Math.max(1, Number(state.thick?.[`${y},${x}`] || 1));
+    counts[code] = (counts[code] || 0) + hp;
+  }));
+  return buildContainers(counts);
+}
+
+function renderContainerTray() {
+  const tray = $("#containerTray");
+  tray.style.setProperty("--tray-width", `${Math.max(state.width * state.tileSize, 760)}px`);
+  const containers = containersForTray();
+  tray.replaceChildren();
+
+  const columns = Array.from({ length: 4 }, (_, col) => {
+    const column = document.createElement("div");
+    column.className = "container-tray-column";
+    column.dataset.label = `Kolonna ${col + 1}`;
+    tray.append(column);
+    return column;
+  });
+  containers
+    .map((container, sourceIndex) => ({ container, sourceIndex }))
+    .sort((a, b) => a.container.col - b.container.col || a.container.r - b.container.r)
+    .forEach(({ container, sourceIndex }) => {
+      const tile = state.tiles.find(item => item.code === container.c);
+      const colour = tile?.color || state.backgroundColor;
+      const item = document.createElement("div");
+      item.className = "container-tray-item";
+      item.style.setProperty("--container-colour", colour);
+      item.style.setProperty("--container-text", containerTextColour(colour));
+      item.title = `${tile?.name || container.c}: cap ${container.cap}, kolonna ${container.col + 1}, rinda ${container.r + 1}`;
+      item.setAttribute("aria-label", item.title);
+      item.innerHTML = `<span>${escapeHtml(container.c)} − ${container.cap}</span><button type="button" class="container-tray-edit" title="Rediģēt container" aria-label="Rediģēt ${escapeAttr(container.c)} container">✎</button>`;
+      item.querySelector(".container-tray-edit").addEventListener("click", () => openContainerTrayForm(columns[Math.max(0, Math.min(3, container.col))], { item, sourceIndex, container }));
+      columns[Math.max(0, Math.min(3, container.col))].append(item);
+    });
+  columns.forEach((column, col) => {
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "container-tray-add";
+    addButton.textContent = "＋ Pievienot";
+    addButton.disabled = !state.tiles.length;
+    addButton.addEventListener("click", () => openContainerTrayForm(column, { col }));
+    column.append(addButton);
+  });
+}
+
+function openContainerTrayForm(column, entry) {
+  column.querySelector(".container-tray-form")?.remove();
+  const form = document.createElement("form");
+  form.className = "container-tray-form";
+  const isEditing = !!entry.item;
+  const selectedCode = entry.container?.c || state.tiles.find(tile => tile.id === selectedTile)?.code || state.tiles[0]?.code;
+  const cap = entry.container?.cap || 2;
+  const options = state.tiles.map(tile => `<option value="${escapeAttr(tile.code)}"${tile.code === selectedCode ? " selected" : ""}>${escapeHtml(tile.code)} · ${escapeHtml(tile.name)}</option>`).join("");
+  form.innerHTML = `<label>Krāsa<select name="c">${options}</select></label><label>Cap<input name="cap" type="number" min="1" max="99" value="${cap}"></label><div class="container-tray-form-actions">${isEditing ? '<button class="button danger" type="button" data-delete>Dzēst</button>' : ""}<button class="button primary" type="submit">${isEditing ? "Saglabāt" : "Pievienot"}</button><button class="button ghost" type="button" data-cancel>Atcelt</button></div>`;
+  const addButton = column.querySelector(".container-tray-add");
+  if (entry.item) entry.item.replaceWith(form); else addButton.before(form);
+  form.querySelector("[data-cancel]").addEventListener("click", renderContainerTray);
+  form.querySelector("[data-delete]")?.addEventListener("click", () => {
+    snapshot();
+    if (!state.containers.length) state.containers = clone(containersForTray());
+    state.containers.splice(entry.sourceIndex, 1);
+    changed();
+  });
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    const values = new FormData(form);
+    const capValue = Math.max(1, Math.min(99, Math.trunc(Number(values.get("cap")) || 1)));
+    snapshot();
+    if (!state.containers.length) state.containers = clone(containersForTray());
+    if (isEditing) {
+      Object.assign(state.containers[entry.sourceIndex], { c: values.get("c"), cap: capValue });
+    } else {
+      const row = state.containers.filter(container => container.col === entry.col).reduce((max, container) => Math.max(max, container.r + 1), 0);
+      state.containers.push({ c: values.get("c"), cap: capValue, col: entry.col, r: row });
+    }
+    changed();
+  });
+}
+
+function containerTextColour(colour) {
+  const hex = colour.replace("#", "");
+  if (!/^[\da-f]{6}$/i.test(hex)) return "#ffffff";
+  const [red, green, blue] = [0, 2, 4].map(index => Number.parseInt(hex.slice(index, index + 2), 16));
+  return red * 299 + green * 587 + blue * 114 > 158000 ? "#17151f" : "#ffffff";
 }
 
 function renderMystery() {
@@ -894,17 +987,25 @@ $("#source").addEventListener("change", event => { state.source = event.target.v
 $("#beltCap").addEventListener("change", event => { state.beltCap = Math.max(1, Math.trunc(+event.target.value || 24)); changed(false); });
 $("#seed").addEventListener("change", event => { state.seed = Math.max(1, Math.trunc(+event.target.value || Date.now())); changed(false); });
 $("#showGrid").addEventListener("change", event => { showGrid = event.target.checked; renderCanvas(); });
+$("#toggleContainersBtn").addEventListener("click", () => {
+  $("#toggleContainersBtn").setAttribute("aria-expanded", "true");
+  $("#containerTrayDialog").showModal();
+});
+$("#closeContainerTray").addEventListener("click", () => $("#containerTrayDialog").close());
+$("#containerTrayDialog").addEventListener("close", () => $("#toggleContainersBtn").setAttribute("aria-expanded", "false"));
+$("#containerTrayDialog").addEventListener("cancel", () => $("#toggleContainersBtn").setAttribute("aria-expanded", "false"));
 
 $("#zoomIn").addEventListener("click", () => setZoom(zoom + .25));
 $("#zoomOut").addEventListener("click", () => setZoom(zoom - .25));
 $("#fitBtn").addEventListener("click", fitCanvas);
 function setZoom(value) {
   zoom = Math.max(.25, Math.min(3, value));
-  $("#canvasWrap").style.transform = `scale(${zoom})`;
+  $("#boardWrap").style.transform = `scale(${zoom})`;
   $("#zoomValue").textContent = `${Math.round(zoom * 100)}%`;
 }
 function fitCanvas() {
-  const usableW = viewport.clientWidth - 100, usableH = viewport.clientHeight - 100;
+  const usableW = viewport.clientWidth - 100;
+  const usableH = Math.max(100, viewport.clientHeight - 100);
   setZoom(Math.min(1.5, usableW / (state.width * state.tileSize), usableH / (state.height * state.tileSize)));
 }
 
@@ -919,15 +1020,6 @@ $("#addLayerBtn").addEventListener("click", () => {
   snapshot();
   state.layers.push({ id: crypto.randomUUID(), name, visible: true, cells: blankCells(state.width, state.height) });
   activeLayer = state.layers.length - 1; changed();
-});
-
-$("#addContainerBtn").addEventListener("click", () => {
-  const colour = state.tiles.find(tile => tile.id === selectedTile)?.code || state.tiles[0]?.code || "K";
-  const col = state.containers.length % 4;
-  const row = state.containers.filter(container => container.col === col).length;
-  snapshot();
-  state.containers.push({ c: colour, cap: 2, r: row, col });
-  changed();
 });
 
 $("#autoContainersBtn").addEventListener("click", () => {

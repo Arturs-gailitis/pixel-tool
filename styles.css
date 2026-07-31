@@ -88,7 +88,7 @@ code { font: 10px DM Mono, monospace; }
 .hint { color: var(--muted); font-size: 9px; margin: 10px 0 0; text-align: center; }
 .image-hint { margin-top: -4px; line-height: 1.5; }
 
-.stage { min-width: 0; display: grid; grid-template-rows: 48px 1fr 30px; background: #0e0d13; }
+.stage { min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr) 30px; background: #0e0d13; }
 .stage-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 0 14px; border-bottom: 1px solid var(--line); background: #19171f; }
 .mode-tabs { height: 100%; display: flex; }
 .mode-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 0 14px; color: var(--muted); font-size: 11px; font-weight: 700; }
@@ -96,6 +96,8 @@ code { font: 10px DM Mono, monospace; }
 .zoom-tools { display: flex; gap: 5px; align-items: center; color: var(--muted); font: 10px DM Mono, monospace; }
 .zoom-tools > span { margin-right: 8px; }
 .zoom-tools button { background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; min-width: 27px; height: 27px; }
+.containers-section .containers-toggle { margin-top: 8px; }
+.containers-section .containers-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .zoom-tools output { min-width: 42px; text-align: center; }
 .grid-switch { display: flex; align-items: center; gap: 5px; margin-left: 8px; cursor: pointer; }
 .grid-switch input { display: none; }
@@ -103,10 +105,31 @@ code { font: 10px DM Mono, monospace; }
 .grid-switch span::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: white; position: absolute; top: 2px; left: 2px; transition: .15s; }
 .grid-switch input:checked + span { background: var(--accent); }
 .grid-switch input:checked + span::after { left: 13px; }
-.canvas-viewport { overflow: auto; display: grid; place-items: center; padding: 60px; background-color: #101015; background-image: radial-gradient(#2e2a35 1px, transparent 1px); background-size: 18px 18px; }
-.canvas-wrap { transform-origin: center; box-shadow: 0 22px 60px #0008, 0 0 0 1px #ffffff13; line-height: 0; }
+.canvas-viewport { min-width: 0; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 60px; background-color: #101015; background-image: radial-gradient(#2e2a35 1px, transparent 1px); background-size: 18px 18px; }
+.board-wrap { display: grid; width: max-content; transform-origin: top center; }
+.canvas-wrap { justify-self: center; transform-origin: center; box-shadow: 0 22px 60px #0008, 0 0 0 1px #ffffff13; line-height: 0; }
 canvas { image-rendering: pixelated; }
 #levelCanvas { cursor: crosshair; touch-action: none; }
+.container-tray-dialog { width: min(1200px, calc(100vw - 40px)); max-width: none; max-height: 90vh; padding: 22px; overflow: hidden; }
+.container-tray-dialog .dialog-heading { margin-bottom: 16px; }
+.container-tray-dialog-body { max-height: calc(90vh - 105px); overflow: auto; padding: 2px; }
+.container-tray { box-sizing: border-box; width: var(--tray-width, 760px); max-height: min(520px, calc(90vh - 125px)); overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 12px; align-content: start; padding: 14px; border: 1px solid #40394f; border-radius: 8px; background: #191721ed; box-shadow: 0 12px 32px #0006; scrollbar-width: thin; scrollbar-color: #5c536d transparent; }
+.container-tray-column { display: grid; grid-auto-rows: minmax(56px, auto); align-content: start; gap: 7px; min-height: 63px; padding-top: 22px; position: relative; border-left: 1px solid #3a3446; }
+.container-tray-column:first-child { border-left: 0; }
+.container-tray-column::before { content: attr(data-label); position: absolute; inset: 0 6px auto; color: var(--muted); font: 9px DM Mono, monospace; text-align: center; }
+.container-tray-item { position: relative; display: grid; place-items: center; min-height: 56px; padding: 8px 30px 8px 8px; border: 1px solid #ffffff55; border-radius: 5px; background: var(--container-colour); color: var(--container-text); box-shadow: inset 0 2px #ffffff42, inset 0 -5px #00000020, 0 3px 8px #0005; }
+.container-tray-item span { font: 800 16px/1 DM Mono, monospace; letter-spacing: .04em; text-shadow: 0 2px 2px #0005; }
+.container-tray-edit { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border: 1px solid #ffffff75; border-radius: 3px; background: #00000022; color: inherit; font-size: 13px; line-height: 1; }
+.container-tray-add { min-height: 34px; margin-top: 3px; border: 1px dashed #625a72; border-radius: 4px; background: #252231; color: var(--muted); font: 700 10px Manrope, sans-serif; }
+.container-tray-add:hover { border-color: var(--accent); color: var(--accent); }
+.container-tray-form { display: grid; gap: 7px; padding: 8px; border: 1px solid var(--accent); border-radius: 5px; background: #211d2a; }
+.container-tray-form label { display: grid; gap: 3px; color: var(--muted); font: 8px DM Mono, monospace; text-transform: uppercase; }
+.container-tray-form select, .container-tray-form input { width: 100%; border: 1px solid var(--line); border-radius: 3px; background: #15131b; padding: 6px; font: 10px DM Mono, monospace; }
+.container-tray-form-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+.container-tray-form-actions:has([data-delete]) { grid-template-columns: repeat(3, 1fr); }
+.container-tray-form .button { padding: 6px 4px; font-size: 9px; }
+.container-tray-empty { grid-column: 1 / -1; margin: 0; padding: 10px; color: var(--muted); font: 10px DM Mono, monospace; text-align: center; }
+@media (max-width: 760px) { .container-tray { grid-template-columns: repeat(2, minmax(150px, 1fr)); } .container-tray-column:nth-child(odd) { border-left: 0; } }
 .statusbar { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding: 0 14px; background: #19171f; color: var(--muted); font: 9px DM Mono, monospace; }
 .status-dot { display: inline-block; width: 6px; height: 6px; background: var(--accent); border-radius: 50%; margin-right: 6px; }
 

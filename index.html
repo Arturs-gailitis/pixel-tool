@@ -91,8 +91,10 @@
         </div>
       </div>
       <div id="canvasViewport" class="canvas-viewport">
-        <div id="canvasWrap" class="canvas-wrap">
-          <canvas id="levelCanvas" aria-label="Līmeņa zīmēšanas laukums"></canvas>
+        <div id="boardWrap" class="board-wrap">
+          <div id="canvasWrap" class="canvas-wrap">
+            <canvas id="levelCanvas" aria-label="Līmeņa zīmēšanas laukums"></canvas>
+          </div>
         </div>
       </div>
       <div class="statusbar">
@@ -148,14 +150,12 @@
       <section class="containers-section">
         <div class="section-heading">
           <div><span class="eyebrow">06</span><h2>Containers</h2></div>
-          <button id="addContainerBtn" class="icon-button add" aria-label="Pievienot container">＋</button>
         </div>
-        <div id="containers" class="containers-list"></div>
         <div class="container-actions">
           <button id="autoContainersBtn" class="button ghost">Auto-izveidot</button>
           <button id="clearContainersBtn" class="button ghost">Notīrīt</button>
         </div>
-        <p class="hint">Manuāli pievienotie containers tiks eksportēti tieši tādā secībā.</p>
+        <button id="toggleContainersBtn" class="button ghost full containers-toggle" type="button" aria-expanded="false">Atvērt container skatu</button>
       </section>
 
       <section class="mystery-section">
@@ -225,6 +225,16 @@
       </section>
     </aside>
   </main>
+
+  <dialog id="containerTrayDialog" class="container-tray-dialog" aria-labelledby="containerTrayTitle">
+    <div class="dialog-heading">
+      <div><span class="eyebrow">CONTAINERS</span><h2 id="containerTrayTitle">Container izkārtojums</h2></div>
+      <button id="closeContainerTray" type="button" class="icon-button" aria-label="Aizvērt container skatu">×</button>
+    </div>
+    <div class="container-tray-dialog-body">
+      <section id="containerTray" class="container-tray" aria-label="Container izkārtojums"></section>
+    </div>
+  </dialog>
 
   <dialog id="tileDialog">
     <form method="dialog" id="tileForm">
