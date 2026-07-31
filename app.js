@@ -587,8 +587,7 @@ function difficultyReport(levelState) {
 
 function simulationPayload(levelState) {
   const grid = exportedGrid(levelState);
-  const counts = {};
-  grid.forEach(row => [...row].forEach(code => { counts[code] = (counts[code] || 0) + 1; }));
+  const counts = containerCapacityCounts(levelState, grid);
   const palette = {};
   levelState.tiles.forEach(tile => { palette[tile.code] = tile.color.toUpperCase(); });
   if (!palette.K) palette.K = levelState.backgroundColor.toUpperCase();
@@ -1097,11 +1096,7 @@ $("#addLayerBtn").addEventListener("click", () => {
 
 $("#autoContainersBtn").addEventListener("click", () => {
   const grid = exportedGrid();
-  const counts = {};
-  grid.forEach((row, y) => [...row].forEach((code, x) => {
-    const hp = Math.max(1, Number(state.thick?.[`${y},${x}`] || 1));
-    counts[code] = (counts[code] || 0) + hp;
-  }));
+  const counts = containerCapacityCounts(state, grid);
   snapshot();
   state.containers = buildContainers(counts);
   changed();
@@ -1974,8 +1969,7 @@ function buildPrismLevel(levelState) {
   if (!palette.K) palette.K = levelState.backgroundColor.toUpperCase();
 
   const grid = exportedGrid(levelState);
-  const counts = {};
-  grid.forEach(row => [...row].forEach(code => { counts[code] = (counts[code] || 0) + 1; }));
+  const counts = containerCapacityCounts(levelState, grid);
   const containers = levelState.containers.length ? sortContainers(levelState.containers) : buildContainers(counts);
   return {
     slot: levelState.slot,
@@ -2021,6 +2015,15 @@ function exportMystery(levelState = state) {
 
 function mysteryExclude(mystery) {
   return Array.isArray(mystery?.exclude) ? mystery.exclude : [];
+}
+
+function containerCapacityCounts(levelState, grid = exportedGrid(levelState)) {
+  const counts = {};
+  grid.forEach((row, y) => [...row].forEach((code, x) => {
+    const hp = Math.max(1, Number(levelState.thick?.[`${y},${x}`] || 1));
+    counts[code] = (counts[code] || 0) + hp;
+  }));
+  return counts;
 }
 
 function sortContainers(containers) {
