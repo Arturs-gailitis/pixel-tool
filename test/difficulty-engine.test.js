@@ -79,6 +79,29 @@ test("vienas bumbiņas trauks un gara krāsu siena ir atļauti", () => {
   assert.ok(!structure.publishBlockers.some(message => message.includes("ne vairāk par 4")));
 });
 
+test("links ievēro dažādas kolonnas, pēdējās rindas un 18 cap limitu", () => {
+  const containers = [
+    { c: "A", cap: 1, r: 0, col: 0 }, { c: "A", cap: 1, r: 1, col: 0 },
+    { c: "A", cap: 1, r: 2, col: 0 }, { c: "A", cap: 1, r: 3, col: 0 },
+    { c: "A", cap: 1, r: 0, col: 1 }, { c: "A", cap: 1, r: 1, col: 1 },
+    { c: "A", cap: 1, r: 2, col: 1 }, { c: "A", cap: 1, r: 3, col: 1 }
+  ];
+  const invalid = analyseLevelStructure(level({
+    grid: ["AAAAAAAA"],
+    containers,
+    links: [{ id: "L1", members: [0, 1] }, { id: "L2", members: [3, 7] }]
+  }));
+  assert.ok(invalid.critical.some(message => message.includes("dažādās kolonnās")));
+  assert.ok(invalid.critical.some(message => message.includes("pēdējām 3 rindām")));
+
+  const oversized = analyseLevelStructure(level({
+    grid: ["AAAAAAAAAAAAAAAAAAAA"],
+    containers: [{ c: "A", cap: 10, r: 0, col: 0 }, { c: "A", cap: 10, r: 0, col: 1 }],
+    links: [{ id: "L3", members: [0, 1] }]
+  }));
+  assert.ok(oversized.critical.some(message => message.includes("pārsniedz 18")));
+});
+
 test("shutter atslēga zem paša aizsega ir publicēšanas bloķētājs", () => {
   const structure = analyseLevelStructure(level({
     regions: { cover: [[0, 0]], key: [[0, 0]] },

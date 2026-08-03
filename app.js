@@ -56,6 +56,7 @@ let activeLevelIndex = workspace.activeLevelIndex;
 let importedCollection = workspace.importedCollection;
 let state = clone(levelCollection[activeLevelIndex]);
 let selectedTile = state.tiles[0]?.id;
+let linkSelection = null;
 let activeLayer = 0;
 let activeTool = "brush";
 let showGrid = true;
@@ -467,6 +468,7 @@ function renderAll() {
   renderLayers();
   renderContainers();
   renderContainerTray();
+  renderLinksOverview();
   renderMystery();
   renderThick();
   renderRegions();
@@ -722,6 +724,123 @@ function containersForTray() {
   return state.containers;
 }
 
+function linkLabel(link) {
+  const members = (link.members || []).map(index => state.containers[index]).filter(Boolean);
+  return members.map(container => `${container.c} ${container.cap}`).join(" + ");
+}
+
+function renderLinksOverview() {
+  const root = $("#linksOverview");
+  root.replaceChildren();
+  if (!state.links.length) {
+    root.innerHTML = '<p class="links-empty">Nav izveidotu links.</p>';
+    return;
+  }
+  state.links.forEach((link, index) => {
+    const row = document.createElement("div");
+    row.className = "link-overview-row";
+    row.innerHTML = `<button type="button" class="link-overview-open" title="Rādīt container skatā"><b>${escapeHtml(link.id || `L${index + 1}`)}</b> · ${escapeHtml(linkLabel(link))}</button><button type="button" class="link-overview-delete" aria-label="Dzēst link ${escapeAttr(link.id || `L${index + 1}`)}" title="Dzēst link">×</button>`;
+    row.querySelector(".link-overview-open").addEventListener("click", () => {
+      linkSelection = null;
+      $("#toggleContainersBtn").setAttribute("aria-expanded", "true");
+      $("#containerTrayDialog").showModal();
+      renderContainerTray();
+    });
+    row.querySelector(".link-overview-delete").addEventListener("click", () => {
+      snapshot();
+      state.links.splice(index, 1);
+      linkSelection = null;
+      changed();
+    });
+    root.append(row);
+  });
+}
+
+function linkedContainerIndices() {
+  return new Set(state.links.flatMap(link => link.members || []));
+}
+
+function containerLinks(index) {
+  return state.links
+    .map((link, linkIndex) => ({ link, linkIndex }))
+    .filter(({ link }) => link.members?.includes(index));
+}
+
+function startLinkSelection() {
+  if (state.containers.length < 2) {
+    toast("Vispirms izveido vismaz divus containers.", true);
+    return;
+  }
+  linkSelection = [];
+  $("#toggleContainersBtn").setAttribute("aria-expanded", "true");
+  $("#containerTrayDialog").showModal();
+  renderContainerTray();
+}
+
+function selectLinkContainer(index) {
+  if (linkedContainerIndices().has(index)) {
+    toast("Šis container jau ir citā link grupā.", true);
+    return;
+  }
+  if (linkSelection.includes(index)) linkSelection = linkSelection.filter(value => value !== index);
+  else linkSelection.push(index);
+  if (linkSelection.length === 2) {
+    const members = linkSelection.map(value => state.containers[value]);
+    const cols = new Set(members.map(container => container.col));
+    const capacity = members.reduce((sum, container) => sum + container.cap, 0);
+    if (cols.size !== 2) {
+      toast("Link kartītēm jābūt dažādās kolonnās.", true);
+      linkSelection = [linkSelection[0]];
+    } else if (capacity > 18) {
+      toast("Link kopējais cap nedrīkst pārsniegt 18.", true);
+      linkSelection = [linkSelection[0]];
+    } else if (members.some(container => !isLateLinkContainer(container))) {
+      toast("Link kartītei jābūt vienā no pēdējām 3 rindām savā kolonnā.", true);
+      linkSelection = [linkSelection[0]];
+    } else {
+      snapshot();
+      state.links.push({ id: nextLinkId(), members: [...linkSelection] });
+      linkSelection = null;
+      changed();
+      toast("Links izveidots.");
+      return;
+    }
+  }
+  renderContainerTray();
+}
+
+function nextLinkId() {
+  const ids = new Set(state.links.map(link => link.id));
+  let number = 1;
+  while (ids.has(`L${number}`)) number++;
+  return `L${number}`;
+}
+
+function isLateLinkContainer(container) {
+  const depth = state.containers.filter(item => item.col === container.col).length;
+  return container.r >= Math.max(0, depth - 3);
+}
+
+function removeContainerAt(index) {
+  state.containers.splice(index, 1);
+  state.links = state.links
+    .map(link => ({ ...link, members: link.members
+      .filter(member => member !== index)
+      .map(member => member > index ? member - 1 : member) }))
+    .filter(link => link.members.length >= 2);
+}
+
+function filterContainers(predicate) {
+  const indexMap = new Map();
+  state.containers.forEach((container, index) => {
+    if (predicate(container, index)) indexMap.set(index, indexMap.size);
+  });
+  state.containers = state.containers.filter(predicate);
+  state.links = state.links
+    .map(link => ({ ...link, members: link.members.map(member => indexMap.get(member)).filter(Number.isInteger) }))
+    .filter(link => link.members.length >= 2);
+}
+
 function renderContainerTray() {
   const tray = $("#containerTray");
   tray.style.setProperty("--tray-width", `${Math.max(state.width * state.tileSize, 760)}px`);
@@ -735,6 +854,18 @@ function renderContainerTray() {
     tray.append(column);
     return column;
   });
+  if (Array.isArray(linkSelection) && linkSelection.length < 2) {
+    const hint = document.createElement("p");
+    hint.className = "container-tray-link-hint";
+    const selectedNames = linkSelection.map(index => {
+      const container = state.containers[index];
+      return container ? `#${index + 1} ${container.c}` : "";
+    }).filter(Boolean).join(", ");
+    hint.textContent = linkSelection.length
+      ? `Izvēlēts: ${selectedNames}. Izvēlies vēl vienu kartīti citā kolonnā.`
+      : "Link veidošanai izvēlies pirmo kartīti (Esc vai aizver dialogu, lai atceltu).";
+    tray.prepend(hint);
+  }
   containers
     .map((container, sourceIndex) => ({ container, sourceIndex }))
     .sort((a, b) => a.container.col - b.container.col || a.container.r - b.container.r)
@@ -743,11 +874,27 @@ function renderContainerTray() {
       const colour = tile?.color || state.backgroundColor;
       const item = document.createElement("div");
       item.className = "container-tray-item";
+      if (Array.isArray(linkSelection)) {
+        item.classList.add("is-linking");
+      }
+      if (linkSelection?.includes(sourceIndex)) item.classList.add("is-link-selected");
+      const memberships = containerLinks(sourceIndex);
+      if (memberships.length) {
+        item.classList.add("has-link");
+        item.style.setProperty("--link-colour", linkColour(memberships[0].linkIndex));
+      }
       item.style.setProperty("--container-colour", colour);
       item.style.setProperty("--container-text", containerTextColour(colour));
-      item.title = `${tile?.name || container.c}: cap ${container.cap}, kolonna ${container.col + 1}, rinda ${container.r + 1}`;
+      const links = memberships.map(({ link, linkIndex }) => link.id || `L${linkIndex + 1}`);
+      item.title = `${tile?.name || container.c}: cap ${container.cap}, kolonna ${container.col + 1}, rinda ${container.r + 1}${links.length ? `, links ${links.join(", ")}` : ""}`;
       item.setAttribute("aria-label", item.title);
-      item.innerHTML = `<span>${escapeHtml(container.c)} − ${container.cap}</span><button type="button" class="container-tray-edit" title="Rediģēt container" aria-label="Rediģēt ${escapeAttr(container.c)} container">✎</button>`;
+      const badges = memberships.map(({ link, linkIndex }) => `<i class="container-tray-link-badge" style="--link-colour:${linkColour(linkIndex)}">⛓ ${escapeHtml(link.id || `L${linkIndex + 1}`)}</i>`).join("");
+      const selectedMarker = linkSelection?.includes(sourceIndex) ? '<b class="container-tray-selected-marker">✓ IZVĒLĒTS</b>' : "";
+      item.innerHTML = `<span>${escapeHtml(container.c)} − ${container.cap}</span>${selectedMarker}${badges}<button type="button" class="container-tray-edit" title="Rediģēt container" aria-label="Rediģēt ${escapeAttr(container.c)} container">✎</button>`;
+      item.addEventListener("click", event => {
+        if (event.target.closest(".container-tray-edit")) return;
+        if (Array.isArray(linkSelection)) selectLinkContainer(sourceIndex);
+      });
       item.querySelector(".container-tray-edit").addEventListener("click", () => openContainerTrayForm(columns[Math.max(0, Math.min(3, container.col))], { item, sourceIndex, container }));
       columns[Math.max(0, Math.min(3, container.col))].append(item);
     });
@@ -777,7 +924,7 @@ function openContainerTrayForm(column, entry) {
   form.querySelector("[data-delete]")?.addEventListener("click", () => {
     snapshot();
     if (!state.containers.length) state.containers = clone(containersForTray());
-    state.containers.splice(entry.sourceIndex, 1);
+    removeContainerAt(entry.sourceIndex);
     changed();
   });
   form.addEventListener("submit", event => {
@@ -1060,12 +1207,15 @@ $("#beltCap").addEventListener("change", event => { state.beltCap = Math.max(1, 
 $("#seed").addEventListener("change", event => { state.seed = Math.max(1, Math.trunc(+event.target.value || Date.now())); changed(false); });
 $("#showGrid").addEventListener("change", event => { showGrid = event.target.checked; renderCanvas(); });
 $("#toggleContainersBtn").addEventListener("click", () => {
+  linkSelection = null;
   $("#toggleContainersBtn").setAttribute("aria-expanded", "true");
   $("#containerTrayDialog").showModal();
+  renderContainerTray();
 });
+$("#linkModeBtn").addEventListener("click", startLinkSelection);
 $("#closeContainerTray").addEventListener("click", () => $("#containerTrayDialog").close());
-$("#containerTrayDialog").addEventListener("close", () => $("#toggleContainersBtn").setAttribute("aria-expanded", "false"));
-$("#containerTrayDialog").addEventListener("cancel", () => $("#toggleContainersBtn").setAttribute("aria-expanded", "false"));
+$("#containerTrayDialog").addEventListener("close", () => { linkSelection = null; $("#toggleContainersBtn").setAttribute("aria-expanded", "false"); });
+$("#containerTrayDialog").addEventListener("cancel", () => { linkSelection = null; $("#toggleContainersBtn").setAttribute("aria-expanded", "false"); });
 
 $("#zoomIn").addEventListener("click", () => setZoom(zoom + .25));
 $("#zoomOut").addEventListener("click", () => setZoom(zoom - .25));
@@ -1099,6 +1249,7 @@ $("#autoContainersBtn").addEventListener("click", () => {
   const counts = containerCapacityCounts(state, grid);
   snapshot();
   state.containers = buildContainers(counts);
+  state.links = [];
   changed();
   toast("Containers izveidoti no režģa krāsu un thick HP skaita");
 });
@@ -1107,6 +1258,7 @@ $("#clearContainersBtn").addEventListener("click", () => {
   if (!state.containers.length) return;
   snapshot();
   state.containers = [];
+  state.links = [];
   changed();
   toast("Manuālie containers notīrīti — eksportā atkal izmantos automātisko sadali");
 });
@@ -1201,7 +1353,7 @@ $("#removeUnusedTilesBtn").addEventListener("click", () => {
   const unusedIds = new Set(unusedTiles.map(tile => tile.id));
   const unusedCodes = new Set(unusedTiles.map(tile => tile.code));
   state.tiles = state.tiles.filter(tile => !unusedIds.has(tile.id));
-  state.containers = state.containers.filter(container => !unusedCodes.has(container.c));
+  filterContainers(container => !unusedCodes.has(container.c));
   if (state.mystery) {
     state.mystery.exclude = state.mystery.exclude.filter(code => !unusedCodes.has(code));
   }
@@ -1245,7 +1397,7 @@ $("#deleteTileBtn").addEventListener("click", () => {
   state.layers.forEach(layer => layer.cells.forEach(row => row.forEach((id, index) => {
     if (id === tile.id) row[index] = null;
   })));
-  state.containers = state.containers.filter(container => container.c !== tile.code);
+  filterContainers(container => container.c !== tile.code);
   if (state.mystery) state.mystery.exclude = state.mystery.exclude.filter(code => code !== tile.code);
   state.tiles = state.tiles.filter(item => item.id !== tile.id);
   selectedTile = state.tiles[0]?.id;
@@ -1534,6 +1686,7 @@ function importImageResult(file, result) {
     state.height = result.cells.length || state.height;
     state.tiles = result.tiles;
     state.containers = [];
+    state.links = [];
     state.layers = [{
       id: crypto.randomUUID(),
       name: `Attēls: ${file.name.replace(/\.[^.]+$/, "")}`,
@@ -2017,6 +2170,10 @@ function mysteryExclude(mystery) {
   return Array.isArray(mystery?.exclude) ? mystery.exclude : [];
 }
 
+function linkColour(index) {
+  return ["#bb8cff", "#55d6be", "#ffb86b", "#78a8ff", "#f486bc", "#d6d96a"][index % 6];
+}
+
 function containerCapacityCounts(levelState, grid = exportedGrid(levelState)) {
   const counts = {};
   grid.forEach((row, y) => [...row].forEach((code, x) => {
@@ -2127,6 +2284,23 @@ function validate(simulation = difficultyReport(state)) {
       .filter(code => (gridCounts[code] || 0) !== (containerCounts[code] || 0));
     if (mismatches.length) warnings.push(`Container ietilpība nesakrīt ar režģi krāsām: ${mismatches.join(", ")}.`);
   }
+  state.links.forEach((link, index) => {
+    const members = Array.isArray(link.members) ? [...new Set(link.members)] : [];
+    const containers = members.map(member => state.containers[member]);
+    if (members.length < 2 || containers.some(container => !container)) {
+      errors.push(`Links #${index + 1} satur nederīgus container indeksus.`);
+      return;
+    }
+    if (new Set(containers.map(container => container.col)).size !== containers.length) {
+      errors.push(`Links #${index + 1} containers jābūt dažādās kolonnās.`);
+    }
+    if (containers.reduce((sum, container) => sum + container.cap, 0) > 18) {
+      errors.push(`Links #${index + 1} kopējais cap pārsniedz 18.`);
+    }
+    if (containers.some(container => !isLateLinkContainer(container))) {
+      errors.push(`Links #${index + 1} container jābūt vienā no pēdējām 3 rindām savā kolonnā.`);
+    }
+  });
   if (simulation) {
     simulation.structure.critical.forEach(message => {
       if (!errors.includes(message)) errors.push(message);

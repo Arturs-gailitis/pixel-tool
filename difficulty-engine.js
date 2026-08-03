@@ -291,6 +291,21 @@ export function analyseLevelStructure(level) {
     if (!Array.isArray(link?.members) || link.members.length < 2 ||
         link.members.some(member => !Number.isInteger(+member) || +member < 0 || +member >= containers.length)) {
       critical.push(`Links #${index + 1} satur nederīgus trauku indeksus.`);
+      return;
+    }
+    const members = [...new Set(link.members.map(Number))];
+    const linkedContainers = members.map(member => containers[member]);
+    if (new Set(linkedContainers.map(container => +container.col)).size !== linkedContainers.length) {
+      critical.push(`Links #${index + 1} traukiem jābūt dažādās kolonnās.`);
+    }
+    if (linkedContainers.reduce((sum, container) => sum + +container.cap, 0) > 18) {
+      critical.push(`Links #${index + 1} kopējā ietilpība pārsniedz 18.`);
+    }
+    if (linkedContainers.some(container => {
+      const depth = containers.filter(item => +item.col === +container.col).length;
+      return +container.r < Math.max(0, depth - 3);
+    })) {
+      critical.push(`Links #${index + 1} traukam jābūt vienā no pēdējām 3 rindām savā kolonnā.`);
     }
   });
 
