@@ -593,11 +593,12 @@ function simulationPayload(levelState) {
   const palette = {};
   levelState.tiles.forEach(tile => { palette[tile.code] = tile.color.toUpperCase(); });
   if (!palette.K) palette.K = levelState.backgroundColor.toUpperCase();
+  const containerData = orderedContainersAndLinks(levelState, counts);
   const simulationLevel = {
     grid,
     palette,
-    containers: levelState.containers.length ? sortContainers(levelState.containers) : buildContainers(counts),
-    links: levelState.links || [],
+    containers: containerData.containers,
+    links: containerData.links,
     mystery: exportMystery(levelState),
     thick: levelState.thick,
     regions: levelState.regions,
@@ -782,31 +783,48 @@ function selectLinkContainer(index) {
     toast("Šis container jau ir citā link grupā.", true);
     return;
   }
-  if (linkSelection.includes(index)) linkSelection = linkSelection.filter(value => value !== index);
-  else linkSelection.push(index);
-  if (linkSelection.length === 2) {
-    const members = linkSelection.map(value => state.containers[value]);
-    const cols = new Set(members.map(container => container.col));
-    const capacity = members.reduce((sum, container) => sum + container.cap, 0);
-    if (cols.size !== 2) {
-      toast("Link kartītēm jābūt dažādās kolonnās.", true);
-      linkSelection = [linkSelection[0]];
-    } else if (capacity > 18) {
-      toast("Link kopējais cap nedrīkst pārsniegt 18.", true);
-      linkSelection = [linkSelection[0]];
-    } else if (members.some(container => !isLateLinkContainer(container))) {
-      toast("Link kartītei jābūt vienā no pēdējām 3 rindām savā kolonnā.", true);
-      linkSelection = [linkSelection[0]];
-    } else {
-      snapshot();
-      state.links.push({ id: nextLinkId(), members: [...linkSelection] });
-      linkSelection = null;
-      changed();
-      toast("Links izveidots.");
-      return;
-    }
+  if (linkSelection.includes(index)) {
+    linkSelection = linkSelection.filter(value => value !== index);
+  } else if (linkSelection.length >= 4) {
+    toast("Vienā link var būt ne vairāk kā 4 kartītes.", true);
+  } else {
+    const candidate = [...linkSelection, index];
+    const problem = linkSelectionProblem(candidate);
+    if (problem) toast(problem, true);
+    else linkSelection = candidate;
   }
   renderContainerTray();
+}
+
+function linkSelectionProblem(indices) {
+  const members = indices.map(index => state.containers[index]);
+  if (new Set(members.map(container => container.col)).size !== members.length) {
+    return "Link kartītēm jābūt dažādās kolonnās.";
+  }
+  if (members.reduce((sum, container) => sum + container.cap, 0) > 18) {
+    return "Link kopējais cap nedrīkst pārsniegt 18.";
+  }
+  if (members.some(container => !isLateLinkContainer(container))) {
+    return "Link kartītei jābūt vienā no pēdējām 3 rindām savā kolonnā.";
+  }
+  return "";
+}
+
+function createSelectedLink() {
+  if (!Array.isArray(linkSelection) || linkSelection.length < 2) {
+    toast("Izvēlies vismaz divas kartītes.", true);
+    return;
+  }
+  const problem = linkSelectionProblem(linkSelection);
+  if (problem) {
+    toast(problem, true);
+    return;
+  }
+  snapshot();
+  state.links.push({ id: nextLinkId(), members: [...linkSelection] });
+  linkSelection = null;
+  changed();
+  toast("Links izveidots.");
 }
 
 function nextLinkId() {
@@ -854,16 +872,18 @@ function renderContainerTray() {
     tray.append(column);
     return column;
   });
-  if (Array.isArray(linkSelection) && linkSelection.length < 2) {
-    const hint = document.createElement("p");
+  if (Array.isArray(linkSelection)) {
+    const hint = document.createElement("div");
     hint.className = "container-tray-link-hint";
     const selectedNames = linkSelection.map(index => {
       const container = state.containers[index];
       return container ? `#${index + 1} ${container.c}` : "";
     }).filter(Boolean).join(", ");
-    hint.textContent = linkSelection.length
-      ? `Izvēlēts: ${selectedNames}. Izvēlies vēl vienu kartīti citā kolonnā.`
-      : "Link veidošanai izvēlies pirmo kartīti (Esc vai aizver dialogu, lai atceltu).";
+    const copy = linkSelection.length
+      ? `Izvēlēts (${linkSelection.length}/4): ${selectedNames}. Vari izvēlēties vēl kartīti citā kolonnā.`
+      : "Link veidošanai izvēlies 2 līdz 4 kartītes (Esc vai aizver dialogu, lai atceltu).";
+    hint.innerHTML = `<span>${escapeHtml(copy)}</span><button type="button" class="button primary" ${linkSelection.length < 2 ? "disabled" : ""}>Izveidot link (${linkSelection.length}/4)</button>`;
+    hint.querySelector("button").addEventListener("click", createSelectedLink);
     tray.prepend(hint);
   }
   containers
@@ -2123,7 +2143,7 @@ function buildPrismLevel(levelState) {
 
   const grid = exportedGrid(levelState);
   const counts = containerCapacityCounts(levelState, grid);
-  const containers = levelState.containers.length ? sortContainers(levelState.containers) : buildContainers(counts);
+  const containerData = orderedContainersAndLinks(levelState, counts);
   return {
     slot: levelState.slot,
     name: levelState.name.trim() || "Untitled",
@@ -2131,8 +2151,8 @@ function buildPrismLevel(levelState) {
     source: levelState.source,
     grid,
     palette,
-    containers,
-    links: levelState.links ? clone(levelState.links) : [],
+    containers: containerData.containers,
+    links: containerData.links,
     mystery: exportMystery(levelState),
     thick: levelState.thick ? clone(levelState.thick) : null,
     regions: levelState.regions ? clone(levelState.regions) : null,
@@ -2168,6 +2188,21 @@ function exportMystery(levelState = state) {
 
 function mysteryExclude(mystery) {
   return Array.isArray(mystery?.exclude) ? mystery.exclude : [];
+}
+
+function orderedContainersAndLinks(levelState, counts) {
+  if (!levelState.containers.length) {
+    return { containers: buildContainers(counts), links: [] };
+  }
+  const indexed = levelState.containers
+    .map((container, index) => ({ container: { ...container }, index }))
+    .sort((a, b) => a.container.col - b.container.col || a.container.r - b.container.r || a.index - b.index);
+  const indexMap = new Map(indexed.map((entry, index) => [entry.index, index]));
+  const links = (levelState.links || []).map(link => ({
+    ...clone(link),
+    members: (link.members || []).map(member => indexMap.get(member)).filter(Number.isInteger)
+  }));
+  return { containers: indexed.map(entry => entry.container), links };
 }
 
 function linkColour(index) {
@@ -2285,9 +2320,10 @@ function validate(simulation = difficultyReport(state)) {
     if (mismatches.length) warnings.push(`Container ietilpība nesakrīt ar režģi krāsām: ${mismatches.join(", ")}.`);
   }
   state.links.forEach((link, index) => {
-    const members = Array.isArray(link.members) ? [...new Set(link.members)] : [];
+    const rawMembers = Array.isArray(link.members) ? link.members : [];
+    const members = [...new Set(rawMembers)];
     const containers = members.map(member => state.containers[member]);
-    if (members.length < 2 || containers.some(container => !container)) {
+    if (members.length < 2 || members.length > 4 || members.length !== rawMembers.length || containers.some(container => !container)) {
       errors.push(`Links #${index + 1} satur nederīgus container indeksus.`);
       return;
     }

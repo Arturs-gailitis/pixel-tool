@@ -288,12 +288,16 @@ export function analyseLevelStructure(level) {
 
   const links = Array.isArray(level.links) ? level.links : [];
   links.forEach((link, index) => {
-    if (!Array.isArray(link?.members) || link.members.length < 2 ||
+    if (!Array.isArray(link?.members) || link.members.length < 2 || link.members.length > 4 ||
         link.members.some(member => !Number.isInteger(+member) || +member < 0 || +member >= containers.length)) {
       critical.push(`Links #${index + 1} satur nederīgus trauku indeksus.`);
       return;
     }
     const members = [...new Set(link.members.map(Number))];
+    if (members.length !== link.members.length) {
+      critical.push(`Links #${index + 1} vienu un to pašu trauku satur vairākas reizes.`);
+      return;
+    }
     const linkedContainers = members.map(member => containers[member]);
     if (new Set(linkedContainers.map(container => +container.col)).size !== linkedContainers.length) {
       critical.push(`Links #${index + 1} traukiem jābūt dažādās kolonnās.`);

@@ -100,6 +100,17 @@ test("links ievēro dažādas kolonnas, pēdējās rindas un 18 cap limitu", () 
     links: [{ id: "L3", members: [0, 1] }]
   }));
   assert.ok(oversized.critical.some(message => message.includes("pārsniedz 18")));
+
+  const tooMany = analyseLevelStructure(level({
+    grid: ["AAAA"],
+    containers: [
+      { c: "A", cap: 1, r: 0, col: 0 }, { c: "A", cap: 1, r: 0, col: 1 },
+      { c: "A", cap: 1, r: 0, col: 2 }, { c: "A", cap: 1, r: 0, col: 3 },
+      { c: "A", cap: 0, r: 1, col: 0 }
+    ],
+    links: [{ id: "L4", members: [0, 1, 2, 3, 4] }]
+  }));
+  assert.ok(tooMany.critical.some(message => message.includes("nederīgus trauku indeksus")));
 });
 
 test("shutter atslēga zem paša aizsega ir publicēšanas bloķētājs", () => {
