@@ -249,7 +249,7 @@
     <form method="dialog" id="tileForm">
       <div class="dialog-heading">
         <div><span class="eyebrow">FLĪZE</span><h2 id="tileDialogTitle">Pievienot flīzi</h2></div>
-        <button value="cancel" class="icon-button" aria-label="Aizvērt">×</button>
+        <button value="cancel" formnovalidate class="icon-button" aria-label="Aizvērt">×</button>
       </div>
       <label>Nosaukums<input id="tileName" maxlength="30" required></label>
       <label>Tips
@@ -264,7 +264,7 @@
       <label>Simbols<input id="tileSymbol" maxlength="2" placeholder="◆"></label>
       <menu>
         <button id="deleteTileBtn" type="button" class="button danger" hidden>Dzēst flīzi</button>
-        <button value="cancel" class="button ghost">Atcelt</button>
+        <button value="cancel" formnovalidate class="button ghost">Atcelt</button>
         <button id="saveTileBtn" value="default" class="button primary">Saglabāt</button>
       </menu>
     </form>
