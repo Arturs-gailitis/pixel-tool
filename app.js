@@ -1251,10 +1251,6 @@ function fitCanvas() {
   setZoom(Math.min(1.5, usableW / (state.width * state.tileSize), usableH / (state.height * state.tileSize)));
 }
 
-$("#settingsToggle").addEventListener("click", () => {
-  $("#settingsBody").hidden = !$("#settingsBody").hidden;
-  $("#settingsToggle").textContent = $("#settingsBody").hidden ? "⌄" : "⌃";
-});
 
 $("#addLayerBtn").addEventListener("click", () => {
   const name = prompt("Jaunā slāņa nosaukums:", `Slānis ${state.layers.length + 1}`)?.trim();
